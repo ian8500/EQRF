@@ -16,8 +16,9 @@
 {% endwith %}
 
 <form method="post">
-    <label>Username:
-        <input type="text" name="username" required>
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>Username (optional):
+        <input type="text" name="username" autocomplete="username">
     </label><br><br>
     <label>Password:
         <input type="password" name="password" required>

@@ -1,11 +1,12 @@
 import os
 import json
-import time
-import glob
-from urllib.parse import unquote
-from threading import Lock
-from functools import lru_cache
+from dataclasses import dataclass
 from datetime import timedelta
+from functools import lru_cache, wraps
+from pathlib import Path
+from threading import Event, Lock
+from typing import Any, Dict, Iterable, List, MutableMapping, Optional
+from urllib.parse import unquote
 
 from flask import (
     Flask,
@@ -25,24 +26,47 @@ from pdf2image import convert_from_path
 from PIL import Image
 
 # ---------------------- Paths & Env ---------------------- #
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, 'data')
-PDF_DIR = os.path.join(BASE_DIR, 'pdfs')              # keep PDFs here (matches your zip)
-JPG_DIR = os.path.join(BASE_DIR, 'static', 'jpgs')    # pre-rendered pages
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / 'data'
+PDF_DIR = BASE_DIR / 'pdfs'              # keep PDFs here (matches your zip)
+JPG_DIR = BASE_DIR / 'static' / 'jpgs'   # pre-rendered pages
 
-os.makedirs(DATA_DIR, exist_ok=True)
-os.makedirs(PDF_DIR, exist_ok=True)
-os.makedirs(JPG_DIR, exist_ok=True)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+PDF_DIR.mkdir(parents=True, exist_ok=True)
+JPG_DIR.mkdir(parents=True, exist_ok=True)
 
 # Ensure poppler tools are in PATH (for pdf2image under systemd/gunicorn on Pi)
 os.environ['PATH'] += os.pathsep + '/usr/bin'
 
-# ---------------------- App ---------------------- #
+# ---------------------- App Configuration ---------------------- #
+
+
+@dataclass(frozen=True)
+class Settings:
+    """Runtime configuration sourced from environment variables."""
+
+    secret_key: str = os.environ.get('EQRF_SECRET_KEY') or os.environ.get('SECRET_KEY', 'change-me')
+    admin_password: str = os.environ.get('EQRF_PASSWORD', 'admin')
+    pdf_dpi: int = int(os.environ.get('PDF_DPI', '100'))
+    max_width: int = int(os.environ.get('MAX_WIDTH', '1600'))
+    jpeg_quality: int = int(os.environ.get('JPEG_QUALITY', '68'))
+    debug: bool = os.environ.get('FLASK_DEBUG', '0') in {'1', 'true', 'True'}
+    host: str = os.environ.get('FLASK_RUN_HOST', '0.0.0.0')
+    port: int = int(os.environ.get('FLASK_RUN_PORT', os.environ.get('PORT', '8000')))
+
+
+SETTINGS = Settings()
+
 app = Flask(__name__)
-app.secret_key = 'your-strong-secret-key'
+app.secret_key = SETTINGS.secret_key
 
 # Strong client caching for static assets & JPG images
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = timedelta(days=365)
+app.config.update(
+    PDF_DPI=SETTINGS.pdf_dpi,
+    MAX_WIDTH=SETTINGS.max_width,
+    JPEG_QUALITY=SETTINGS.jpeg_quality,
+)
 
 @app.after_request
 def add_caching_headers(resp):
@@ -57,18 +81,18 @@ def utility_processor():
     return dict(enumerate=enumerate)
 
 # ---------------------- Globals (SSE) ---------------------- #
-should_refresh = False
 active_users = 0
 user_lock = Lock()
+refresh_event = Event()
 
 # ---------------------- Helpers: JSON ---------------------- #
-EXTRACTS_JSON = os.path.join(DATA_DIR, 'extracts.json')
-CHECKLISTS_JSON = os.path.join(DATA_DIR, 'checklists.json')
+EXTRACTS_JSON = DATA_DIR / 'extracts.json'
+CHECKLISTS_JSON = DATA_DIR / 'checklists.json'
 
 
-def _read_json(path, default):
+def _read_json(path: Path, default: Any) -> Any:
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        with path.open('r', encoding='utf-8') as f:
             return json.load(f)
     except FileNotFoundError:
         return default
@@ -76,35 +100,35 @@ def _read_json(path, default):
         return default
 
 
-def _write_json(path, data):
-    tmp = path + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as f:
+def _write_json(path: Path, data: Any) -> None:
+    tmp = path.with_suffix(path.suffix + '.tmp')
+    with tmp.open('w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, path)
+    tmp.replace(path)
 
 
 @lru_cache(maxsize=1)
-def get_extracts():
+def get_extracts() -> Dict[str, Any]:
     return _read_json(EXTRACTS_JSON, {})
 
 
 @lru_cache(maxsize=1)
-def get_checklists():
+def get_checklists() -> Dict[str, Any]:
     return _read_json(CHECKLISTS_JSON, {})
 
 
-def save_extracts(extracts):
+def save_extracts(extracts: Dict[str, Any]) -> None:
     _write_json(EXTRACTS_JSON, extracts)
     get_extracts.cache_clear()
 
 
-def save_checklists(data):
+def save_checklists(data: Dict[str, Any]) -> None:
     _write_json(CHECKLISTS_JSON, data)
     get_checklists.cache_clear()
 
 # ---------------------- Helpers: category tree ---------------------- #
 
-def _ensure_node_for_path(root, parts):
+def _ensure_node_for_path(root: MutableMapping[str, Any], parts: Iterable[str]) -> MutableMapping[str, Any]:
     """Create intermediate dict nodes for a path like ['AIR','SID'].
     Returns the final node dict.
     Format supports both old (list at key) and new (dict with '__files__').
@@ -124,7 +148,7 @@ def _ensure_node_for_path(root, parts):
     return node
 
 
-def _get_node_for_path(root, parts):
+def _get_node_for_path(root: MutableMapping[str, Any], parts: Iterable[str]) -> Optional[Any]:
     node = root
     for p in parts:
         if isinstance(node, dict) and p in node:
@@ -134,7 +158,7 @@ def _get_node_for_path(root, parts):
     return node
 
 
-def _list_files_in_node(node):
+def _list_files_in_node(node: Any) -> List[str]:
     """Return a list of filenames for either style (list or dict with '__files__')."""
     if isinstance(node, list):
         return list(node)
@@ -145,18 +169,7 @@ def _list_files_in_node(node):
     return []
 
 
-def _set_files_in_node(node, files_list):
-    if isinstance(node, list):
-        # convert to dict-style to be consistent going forward
-        node = {'__files__': list(files_list)}
-        return node
-    if isinstance(node, dict):
-        node['__files__'] = list(files_list)
-        return node
-    return {'__files__': list(files_list)}
-
-
-def _delete_category_path(root, parts):
+def _delete_category_path(root: MutableMapping[str, Any], parts: Iterable[str]) -> bool:
     if not parts:
         return False
     node = root
@@ -170,28 +183,43 @@ def _delete_category_path(root, parts):
 
 # ---------------------- Helpers: files & images ---------------------- #
 
-def _pdf_base(filename):
-    return os.path.splitext(filename)[0]
+def _pdf_base(filename: str) -> str:
+    return Path(filename).stem
 
 
-def _jpg_glob_for_pdf(filename):
+def _jpg_glob_for_pdf(filename: str) -> List[Path]:
     base = _pdf_base(filename)
-    pattern = os.path.join(JPG_DIR, f"{base}_page*.jpg")
-    return sorted(glob.glob(pattern), key=lambda p: int(os.path.splitext(p)[0].rsplit('_page', 1)[-1]))
+    pattern = f"{base}_page*.jpg"
+
+    def _sort_key(path: Path) -> int:
+        try:
+            suffix = path.stem.rsplit('_page', 1)[-1]
+            return int(suffix)
+        except (ValueError, IndexError):
+            return 0
+
+    return sorted(JPG_DIR.glob(pattern), key=_sort_key)
 
 
-def _jpg_names_for_pdf(filename):
-    return [os.path.basename(p) for p in _jpg_glob_for_pdf(filename)]
+def _jpg_names_for_pdf(filename: str) -> List[str]:
+    return [path.name for path in _jpg_glob_for_pdf(filename)]
 
 
-def _ensure_jpgs_for_pdf(pdf_path, filename, dpi=100, quality=68, max_width=1600):
+def _ensure_jpgs_for_pdf(
+    pdf_path: Path,
+    filename: str,
+    *,
+    dpi: int,
+    quality: int,
+    max_width: int,
+) -> List[str]:
     """Render JPGs if missing. Admin normally does this at upload time, but this is a safety net."""
     jpgs = _jpg_glob_for_pdf(filename)
     if jpgs:
-        return [os.path.basename(p) for p in jpgs]
+        return [path.name for path in jpgs]
 
-    pages = convert_from_path(pdf_path, dpi=dpi)
-    out = []
+    pages = convert_from_path(str(pdf_path), dpi=dpi)
+    out: List[str] = []
     for i, page in enumerate(pages, start=1):
         if page.width > max_width:
             scale = max_width / float(page.width)
@@ -199,16 +227,16 @@ def _ensure_jpgs_for_pdf(pdf_path, filename, dpi=100, quality=68, max_width=1600
             page = page.resize(new_size, Image.LANCZOS)
         img = page.convert('RGB')
         out_name = f"{_pdf_base(filename)}_page{i}.jpg"
-        out_path = os.path.join(JPG_DIR, out_name)
-        img.save(out_path, 'JPEG', quality=quality, optimize=True, progressive=True, subsampling=2)
+        out_path = JPG_DIR / out_name
+        img.save(str(out_path), 'JPEG', quality=quality, optimize=True, progressive=True, subsampling=2)
         out.append(out_name)
     return out
 
 
-def _detect_orientation_from_first_jpg(jpg_names):
+def _detect_orientation_from_first_jpg(jpg_names: List[str]) -> str:
     if not jpg_names:
         return 'portrait'
-    first = os.path.join(JPG_DIR, jpg_names[0])
+    first = JPG_DIR / jpg_names[0]
     try:
         with Image.open(first) as im:
             return 'landscape' if im.width >= im.height else 'portrait'
@@ -221,17 +249,49 @@ def is_logged_in():
     return bool(session.get('logged_in'))
 
 
+def _safe_redirect_target(target: Optional[str]) -> str:
+    """Prevent open redirects by only allowing intra-site destinations."""
+
+    if target and target.startswith('/') and not target.startswith('//'):
+        return target
+    return url_for('admin_panel')
+
+
+def login_required(func):
+    """Decorator that redirects unauthenticated users to the login page."""
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if is_logged_in():
+            return func(*args, **kwargs)
+
+        flash('Please log in to continue.', 'error')
+        next_url = request.full_path.rstrip('?') if request.method == 'GET' else (request.referrer or url_for('admin_panel'))
+        return redirect(url_for('login', next=next_url))
+
+    return wrapper
+
+
+def trigger_client_refresh() -> None:
+    """Signal all connected browsers to refresh via Server Sent Events."""
+
+    refresh_event.set()
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    next_target = request.args.get('next', '')
     if request.method == 'POST':
         password = request.form.get('password', '')
-        expected = os.environ.get('EQRF_PASSWORD', 'admin')
+        expected = SETTINGS.admin_password
         if password == expected:
             session['logged_in'] = True
             flash('Logged in.', 'success')
-            return redirect(url_for('admin_panel'))
+            next_url = _safe_redirect_target(request.form.get('next'))
+            return redirect(next_url)
         flash('Invalid password.', 'error')
-    return render_template('login.html')
+        next_target = request.form.get('next', next_target)
+    return render_template('login.html', next=next_target)
 
 
 @app.route('/logout')
@@ -244,10 +304,8 @@ def logout():
 
 @app.route('/stream')
 def stream():
-    global active_users
-
     def event_stream():
-        global should_refresh, active_users
+        global active_users
         try:
             with user_lock:
                 active_users += 1
@@ -255,10 +313,10 @@ def stream():
             # Initial retry suggestion in case of network hiccups
             yield 'retry: 2000\n\n'
             while True:
-                time.sleep(1)
+                triggered = refresh_event.wait(timeout=1)
                 counter += 1
-                if should_refresh:
-                    should_refresh = False
+                if triggered:
+                    refresh_event.clear()
                     yield 'event: refresh\n'
                     yield 'data: true\n\n'
                 elif counter % 15 == 0:
@@ -274,8 +332,7 @@ def stream():
 @app.route('/trigger-refresh', methods=['POST'])
 @app.route('/trigger_refresh', methods=['POST'])  # legacy alias
 def trigger_refresh():
-    global should_refresh
-    should_refresh = True
+    trigger_client_refresh()
     return 'OK'
 
 # ---------------------- Home ---------------------- #
@@ -361,14 +418,20 @@ def extracts_viewer(category, filename):
     if filename not in files:
         return f"File not found in category: {filename}", 404
 
-    pdf_path = os.path.join(PDF_DIR, filename)
-    if not os.path.exists(pdf_path):
+    pdf_path = PDF_DIR / filename
+    if not pdf_path.exists():
         return f"PDF not found on disk: {filename}", 404
 
     jpgs = _jpg_names_for_pdf(filename)
     if not jpgs:
         # Safety net: render if missing (normally done at upload time)
-        jpgs = _ensure_jpgs_for_pdf(pdf_path, filename)
+        jpgs = _ensure_jpgs_for_pdf(
+            pdf_path,
+            filename,
+            dpi=SETTINGS.pdf_dpi,
+            quality=SETTINGS.jpeg_quality,
+            max_width=SETTINGS.max_width,
+        )
 
     orientation = _detect_orientation_from_first_jpg(jpgs)
 
@@ -410,18 +473,16 @@ def send_pdf(filename):
 # ---------------------- Admin: register & manage extracts ---------------------- #
 
 @app.route('/admin', methods=['GET'])
+@login_required
 def admin_panel():
-    if not is_logged_in():
-        return redirect(url_for('login'))
     extracts = get_extracts()
     return render_template('admin_register.html', extracts=extracts)
 
 
 @app.route('/admin/upload_pdf', methods=['POST'])
+@login_required
 def upload_pdf():
     """Register a PDF under a (possibly nested) category, convert to JPGs, update extracts.json."""
-    if not is_logged_in():
-        return redirect(url_for('login'))
 
     file = request.files.get('file')
     category = (request.form.get('category') or '').strip().strip('/')
@@ -431,23 +492,29 @@ def upload_pdf():
         return redirect(url_for('admin_panel'))
 
     safe_name = secure_filename(file.filename)
-    pdf_path = os.path.join(PDF_DIR, safe_name)
-    file.save(pdf_path)
+    pdf_path = PDF_DIR / safe_name
+    file.save(str(pdf_path))
 
     # Convert to JPGs at admin time (faster viewing later)
     try:
-        pages = convert_from_path(pdf_path, dpi=int(os.environ.get('PDF_DPI', '100')))
+        pages = convert_from_path(str(pdf_path), dpi=SETTINGS.pdf_dpi)
         for i, page in enumerate(pages, start=1):
             # keep files compact for Pi decode speed
-            max_width = int(os.environ.get('MAX_WIDTH', '1600'))
-            if page.width > max_width:
-                scale = max_width / float(page.width)
-                new_size = (max_width, int(page.height * scale))
+            if page.width > SETTINGS.max_width:
+                scale = SETTINGS.max_width / float(page.width)
+                new_size = (SETTINGS.max_width, int(page.height * scale))
                 page = page.resize(new_size, Image.LANCZOS)
             img = page.convert('RGB')
             out_name = f"{_pdf_base(safe_name)}_page{i}.jpg"
-            out_path = os.path.join(JPG_DIR, out_name)
-            img.save(out_path, 'JPEG', quality=int(os.environ.get('JPEG_QUALITY', '68')), optimize=True, progressive=True, subsampling=2)
+            out_path = JPG_DIR / out_name
+            img.save(
+                str(out_path),
+                'JPEG',
+                quality=SETTINGS.jpeg_quality,
+                optimize=True,
+                progressive=True,
+                subsampling=2,
+            )
     except Exception as e:
         flash(f'PDF conversion failed: {e}', 'error')
         return redirect(url_for('admin_panel'))
@@ -455,13 +522,12 @@ def upload_pdf():
     # Update extracts.json
     extracts = get_extracts().copy()
     parts = [unquote(p) for p in category.split('/') if p] if category else []
-    if parts:
-        node = _ensure_node_for_path(extracts, parts)
-    else:
+    if not parts:
         # Files at root level: keep a top-level list (legacy) under a special key if desired.
-        # We'll store them under a pseudo-root named 'MISC' if not specified.
-        node = _ensure_node_for_path(extracts, ['MISC'])
+        parts = ['MISC']
         category = 'MISC'
+
+    node = _ensure_node_for_path(extracts, parts)
 
     files = _list_files_in_node(node)
     if safe_name not in files:
@@ -469,27 +535,18 @@ def upload_pdf():
     # Ensure back into node
     if isinstance(node, dict):
         node['__files__'] = files
-    else:
-        # convert legacy list to dict
-        parent = extracts
-        for p in [unquote(p) for p in category.split('/') if p][:-1]:
-            parent = parent[p]
-        parent[parts[-1]] = {'__files__': files}
 
     save_extracts(extracts)
 
-    # Trigger clients to refresh
-    global should_refresh
-    should_refresh = True
+    trigger_client_refresh()
 
     flash(f'Uploaded and registered {safe_name} under {category or "root"}.', 'success')
     return redirect(url_for('admin_panel'))
 
 
 @app.route('/admin/delete_pdf', methods=['POST'])
+@login_required
 def delete_pdf():
-    if not is_logged_in():
-        return redirect(url_for('login'))
 
     category = (request.form.get('category') or '').strip().strip('/')
     filename = request.form.get('filename')
@@ -510,18 +567,20 @@ def delete_pdf():
         files.remove(filename)
         if isinstance(node, dict):
             node['__files__'] = files
-        else:
-            # legacy -> convert
-            node = {'__files__': files}
+        elif parts:
+            # legacy -> convert and reassign on parent structure
+            parent = extracts
+            for part in parts[:-1]:
+                parent = parent.get(part, {})
+            parent[parts[-1]] = {'__files__': files}
         # Remove JPGs (keep original PDF unless you want it deleted too)
         for jpg in _jpg_names_for_pdf(filename):
             try:
-                os.remove(os.path.join(JPG_DIR, jpg))
+                (JPG_DIR / jpg).unlink()
             except FileNotFoundError:
                 pass
         save_extracts(extracts)
-        global should_refresh
-        should_refresh = True
+        trigger_client_refresh()
         flash(f'Deleted {filename} from {category}.', 'info')
     else:
         flash('File not found in category.', 'error')
@@ -530,9 +589,8 @@ def delete_pdf():
 
 
 @app.route('/admin/delete_category', methods=['POST'])
+@login_required
 def delete_category():
-    if not is_logged_in():
-        return redirect(url_for('login'))
 
     category = (request.form.get('category') or '').strip().strip('/')
     parts = [unquote(p) for p in category.split('/') if p]
@@ -562,12 +620,11 @@ def delete_category():
         for fn in all_files:
             for jpg in _jpg_names_for_pdf(fn):
                 try:
-                    os.remove(os.path.join(JPG_DIR, jpg))
+                    (JPG_DIR / jpg).unlink()
                 except FileNotFoundError:
                     pass
         save_extracts(extracts)
-        global should_refresh
-        should_refresh = True
+        trigger_client_refresh()
         flash(f'Deleted category {category}.', 'info')
     else:
         flash('Failed to delete category.', 'error')
@@ -577,17 +634,15 @@ def delete_category():
 # ---------------------- Admin: checklists (view/edit via simple text) ---------------------- #
 
 @app.route('/admin/checklists')
+@login_required
 def admin_checklists():
-    if not is_logged_in():
-        return redirect(url_for('login'))
     data = get_checklists()
     return render_template('admin_checklists.html', data=data)
 
 
 @app.route('/admin/checklists/edit', methods=['GET', 'POST'])
+@login_required
 def admin_checklist_edit():
-    if not is_logged_in():
-        return redirect(url_for('login'))
 
     path = (request.values.get('path') or '').strip().strip('/')
     parts = [unquote(p) for p in path.split('/') if p]
@@ -614,8 +669,7 @@ def admin_checklist_edit():
             parent[last_key] = new_list
             save_checklists(data)
             flash('Checklist saved.', 'success')
-            global should_refresh
-            should_refresh = True
+            trigger_client_refresh()
             return redirect(url_for('admin_checklists'))
         else:
             flash('Invalid checklist path.', 'error')
@@ -631,4 +685,4 @@ def admin_checklist_edit():
 # ---------------------- Main ---------------------- #
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=8000)
+    app.run(debug=SETTINGS.debug, host=SETTINGS.host, port=SETTINGS.port)
