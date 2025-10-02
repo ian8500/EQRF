@@ -1,0 +1,198 @@
+# EQRF Pi Optimisation – Drop‑in Code
+
+Below are **drop‑in** changes that improve performance on Raspberry Pi without changing your routes or page structure.
+
+---
+
+## 1) `templates/extracts_viewer.html` — full file (adds lazy‑loading & paint containment)
+
+```jinja2
+{% extends "base.html" %}
+{% block title %}{{ item.pdf[:-4] if item.pdf.endswith('.pdf') else item.pdf }}{% endblock %}
+
+{% block content %}
+{% set is_landscape = (item.orientation == 'landscape') %}
+{% set page_title = item.pdf[:-4] if item.pdf.endswith('.pdf') else item.pdf %}
+
+<h2 class="extract-title">{{ page_title }}</h2>
+
+<!-- Floating toolbar (unchanged behaviour) -->
+<div id="toolbar" class="sticky-toolbar">
+  <button onclick="zoomOut()" title="Zoom Out">➖</button>
+  <button onclick="zoomIn()"  title="Zoom In">➕</button>
+  <button onclick="rotate()"  title="Rotate">🔄</button>
+  <button onclick="fitToPage()" title="Fit to Page">🖥️</button>
+</div>
+
+<!-- Image stack -->
+<div id="images-container" class="{{ item.orientation }}">
+  {% for jpg in item.jpgs %}
+    <img
+      src="{{ url_for('send_jpg', filename=jpg) }}"
+      alt="Page {{ loop.index }}"
+      class="extract-image"
+      {% if is_landscape %}style="transform-origin: center;"{% endif %}
+      loading="lazy"
+      decoding="async"
+      {% if loop.first %}fetchpriority="high"{% else %}fetchpriority="low"{% endif %}>
+  {% endfor %}
+</div>
+
+<!-- Performance CSS: contain offscreen painting; avoid reflow during lazy loads -->
+<style>
+  #images-container { width: 100%; }
+  #images-container img.extract-image{
+    display: block;
+    margin: 0 0 16px 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    max-width: 100%;
+    height: auto;
+    /* Key perf hints */
+    content-visibility: auto;          /* skip rendering until near viewport */
+    contain: layout style paint;        /* isolate each image */
+    contain-intrinsic-size: 1550px 1100px; /* reserve space to avoid layout jumps */
+  }
+  /* Optional: if your pre-render is landscape, ensure it fits naturally */
+  #images-container.landscape img.extract-image{ width: 100%; }
+</style>
+
+{% endblock %}
+```
+
+**What changed:** images are now `loading="lazy"`, `decoding="async"`, and use `content-visibility:auto` so Chromium on the Pi won’t decode and paint all pages at once.
+
+> Keep your existing zoom/rotate JS exactly as-is. The buttons call the same function names, so no behavioural change.
+
+---
+
+## 2) `app.py` — add safe caching (copy these blocks in; no route changes needed)
+
+**Imports (near your other imports):**
+
+```python
+from datetime import timedelta
+from flask import request
+```
+
+**Config (after `app = Flask(__name__)`):**
+
+```python
+# Strong client caching for static assets and JPG pages
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = timedelta(days=365)
+```
+
+**Add this once near the bottom of your file (or anywhere after `app` is defined):**
+
+```python
+@app.after_request
+def add_caching_headers(resp):
+    p = request.path or ""
+    # Cache static assets and rendered JPGs aggressively (immutable content)
+    if p.startswith('/static/') or p.startswith('/jpgs/'):
+        resp.headers.setdefault('Cache-Control', 'public, max-age=31536000, immutable')
+    return resp
+```
+
+This is additive and won’t interfere with existing logic.
+
+---
+
+## 3) Optional: higher‑efficiency PDF→JPG saving (use in your upload/convert code)
+
+Paste this **helper** somewhere in `app.py` (top‑level), then call it instead of your current `page.save(...)` loop. It keeps the same output folder idea and filenames but writes **progressive, subsampled** JPEGs and caps overly large pages.
+
+```python
+import os
+from PIL import Image
+from pdf2image import convert_from_path
+
+# Configure via env if you like: PDF_DPI=100 JPEG_QUALITY=68 MAX_WIDTH=1600
+
+def render_pdf_to_jpgs(pdf_path, jpg_dir, base_name,
+                        dpi=None, quality=None, max_width=None):
+    dpi = int(os.environ.get('PDF_DPI', dpi or 100))
+    quality = int(os.environ.get('JPEG_QUALITY', quality or 68))
+    max_width = int(os.environ.get('MAX_WIDTH', max_width or 1600))
+
+    os.makedirs(jpg_dir, exist_ok=True)
+    pages = convert_from_path(pdf_path, dpi=dpi)
+    jpg_files = []
+
+    for i, page in enumerate(pages, start=1):
+        # Shrink oversized pages to keep decode fast on the Pi
+        if page.width > max_width:
+            scale = max_width / float(page.width)
+            new_size = (max_width, int(page.height * scale))
+            page = page.resize(new_size, Image.LANCZOS)
+
+        # Ensure RGB and save as progressive, subsampled JPEG
+        img = page.convert('RGB')
+        jpg_filename = f"{base_name}_page{i}.jpg"
+        jpg_path = os.path.join(jpg_dir, jpg_filename)
+        img.save(
+            jpg_path,
+            'JPEG',
+            quality=quality,
+            optimize=True,
+            progressive=True,
+            subsampling=2  # 4:2:0
+        )
+        jpg_files.append(jpg_filename)
+
+    return jpg_files
+```
+
+**Example usage (replace your current PDF→JPG block):**
+
+```python
+# pdf_path: full path to uploaded PDF
+# JPG_DIR: your existing folder, e.g. os.path.join(BASE_DIR, 'static', 'jpgs')
+# base_name: e.g. os.path.splitext(uploaded_filename)[0]
+
+jpgs = render_pdf_to_jpgs(pdf_path, JPG_DIR, base_name)
+```
+
+This keeps your existing route structure; only the on‑disk files become smaller/faster to decode.
+
+---
+
+## 4) Gunicorn & Chromium runtime tweaks (copy/paste)
+
+**Gunicorn** (example `ExecStart` — adjust paths to your env):
+
+```bash
+/usr/bin/gunicorn app:app \
+  -b 0.0.0.0:8000 \
+  -w 1 --threads 8 --worker-class gthread \
+  --timeout 60 --keep-alive 65 \
+  --max-requests 500 --max-requests-jitter 50 \
+  --preload
+```
+
+**Chromium kiosk flags** (trim if you need):
+
+```bash
+chromium-browser --kiosk http://localhost:8000 \
+  --enable-zero-copy --ignore-gpu-blocklist \
+  --disable-features=MediaRouter,Translate,BackForwardCache \
+  --disable-smooth-scrolling --force-prefers-reduced-motion \
+  --noerrdialogs --disable-session-crashed-bubble
+```
+
+---
+
+## 5) requirements.txt (pin the libs you already use)
+
+```text
+Flask==3.0.3
+pdf2image==1.17.0
+Pillow==10.4.0
+```
+
+---
+
+### Notes
+
+* The `extracts_viewer.html` above keeps your existing toolbar hooks (`zoomIn/zoomOut/rotate/fitToPage`). No JS changes required.
+* The `after_request` header and `SEND_FILE_MAX_AGE_DEFAULT` are fully safe to add even if you already have other `after_request` hooks.
+* The PDF→JPG helper is optional; it only affects admin‑time conversions and further reduces file size/IO.

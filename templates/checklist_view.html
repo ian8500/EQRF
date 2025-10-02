@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Checklist - {{ category }}{% endblock %}
+
+{% block content %}
+<!-- Sticky header: title above, centred reset below -->
+<div id="checklist-sticky">
+  <h2 class="checklist-title">{{ category }}</h2>
+  <button class="btn btn-large" id="reset-checklist-top" onclick="resetChecklist()">Reset Checklist</button>
+</div>
+
+<ul class="checklist-list" id="checklist" style="margin-top: .75rem;">
+  {% for item in items %}
+    {% if item.startswith('---') %}
+      <li><hr></li>
+    {% else %}
+      <li>
+        <label{% if item == "CAT A ONLY" %} class="cat-a"{% endif %}>
+          <input type="checkbox" class="checklist-item">
+          <span>{{ item }}</span>
+        </label>
+      </li>
+    {% endif %}
+  {% endfor %}
+</ul>
+
+<!-- Bottom reset for convenience -->
+<div style="margin-top: 12px; text-align: center;">
+  <button class="btn btn-large" id="reset-checklist-bottom" onclick="resetChecklist()">Reset Checklist</button>
+</div>
+
+<script>
+  function resetChecklist() {
+    document.querySelectorAll('.checklist-item').forEach(cb => cb.checked = false);
+  }
+
+  // Compute top offset so the sticky header doesn't overlap your top bar
+  (function setStickyOffset(){
+    const candidates = document.querySelectorAll('header, .site-header, .topbar, .navbar');
+    let headerH = 0;
+    if (candidates.length) {
+      const el = candidates[0];
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      const position = style.position;
+      if (position === 'fixed' || position === 'sticky') {
+        headerH = el.offsetHeight || (rect.bottom - rect.top);
+      }
+    }
+    document.documentElement.style.setProperty('--sticky-offset', headerH + 'px');
+  })();
+  window.addEventListener('resize', () => {
+    const candidates = document.querySelectorAll('header, .site-header, .topbar, .navbar');
+    let headerH = 0;
+    if (candidates.length) {
+      const el = candidates[0];
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      const position = style.position;
+      if (position === 'fixed' || position === 'sticky') {
+        headerH = el.offsetHeight || (rect.bottom - rect.top);
+      }
+    }
+    document.documentElement.style.setProperty('--sticky-offset', headerH + 'px');
+  });
+</script>
+
+<style>
+  #checklist-sticky {
+    position: sticky;
+    top: var(--sticky-offset, 0px);
+    z-index: 1000;
+    background: #fff;
+    padding: .5rem 0;
+    border-bottom: 1px solid #e5e5e5;
+    text-align: center;
+  }
+
+  .checklist-title {
+    margin: 0 0 .5rem 0;
+    font-size: 1.25rem;
+  }
+
+  .btn-large {
+    font-size: 1.1rem;
+    padding: .5rem 1.25rem;
+  }
+</style>
+{% endblock %}

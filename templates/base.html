@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>{% block title %}Glasgow E-QRF{% endblock %}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Main styles -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+  <!-- Night mode before paint (avoid white flash) -->
+  <script>
+  (function () {
+    if (localStorage.getItem('nightMode') === 'on') {
+      document.documentElement.classList.add('night-mode');
+    }
+  })();
+  </script>
+
+  <!-- Set --header-h early so sticky header never overlaps content -->
+  <script>
+  (function headerOffsetWatcher(){
+    function setHeaderHeight(){
+      const header = document.querySelector('.site-header');
+      const h = header ? Math.ceil(header.getBoundingClientRect().height) : 0;
+      document.documentElement.style.setProperty('--header-h', h + 'px');
+    }
+    document.addEventListener('DOMContentLoaded', setHeaderHeight);
+    window.addEventListener('load', setHeaderHeight, { passive: true });
+    window.addEventListener('resize', setHeaderHeight);
+  })();
+  </script>
+
+  <!-- Your site JS -->
+  <script defer src="{{ url_for('static', filename='script.js') }}"></script>
+
+  {% block head %}{% endblock %}
+  <style>
+    /* Ensure .night-mode works whether set on <html> or <body> */
+    .night-mode body, body.night-mode, html.night-mode {
+      background: #1a1a1a !important;
+      color: #eee !important;
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="top-bar">
+      <div class="top-nav">
+        <a class="nav-button" href="/">🏠 Home</a>
+        <a class="nav-button" href="#" onclick="history.back(); return false;">⬅️ Back</a>
+        <a class="nav-button" id="night-toggle" href="#">🌓 Toggle</a>
+        {% if session.get('logged_in') %}
+          <a class="nav-button" href="/admin/register">⚙️ Admin</a>
+          <a class="nav-button" href="/logout">🚪 Logout</a>
+        {% else %}
+          <a class="nav-button" href="/login">🔐 login</a>
+        {% endif %}
+      </div>
+    </div>
+  </header>
+
+  <main class="main-content">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul class="flashes">
+          {% for category, message in messages %}
+            <li class="flash {{ category }}">{{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Night mode toggle persistence -->
+  <script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const toggleBtn = document.getElementById('night-toggle');
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        const el = document.documentElement;
+        el.classList.toggle('night-mode');
+        if (el.classList.contains('night-mode')) {
+          localStorage.setItem('nightMode', 'on');
+        } else {
+          localStorage.removeItem('nightMode');
+        }
+      });
+    }
+  });
+  </script>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

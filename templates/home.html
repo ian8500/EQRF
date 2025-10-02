@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+
+{% block content %}
+<h2>Welcome to the Glasgow E-QRF</h2>
+<div class="button-group">
+    <a class="nav-button" href="{{ url_for('checklist_index') }}">📝 Checklists</a>
+    <a class="nav-button" href="{{ url_for('extracts_index') }}">📄 Extracts</a>
+</div>
+
+{% if home_pdfs %}
+<hr>
+<h3>Quick Reference</h3>
+<div class="button-group">
+    {% for idx, pdf in enumerate(home_pdfs) %}
+        <a class="nav-button" href="{{ url_for('viewer', category='--', file_idx=idx) }}">
+            📘 {{ pdf.pdf[:-4] if pdf.pdf.endswith('.pdf') else pdf.pdf }}
+        </a>
+    {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

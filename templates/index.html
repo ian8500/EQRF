@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Checklist{% endblock %}
+{% block content %}
+<h1>Checklists</h1>
+{% for title, items in checklists.items() %}
+    <h2>{{ title }}</h2>
+    <ul>
+    {% for item in items %}
+        <li><input type="checkbox"> {{ item }}</li>
+    {% endfor %}
+    </ul>
+{% endfor %}
+<a href="{{ url_for('pdf_viewer', filename='example.pdf') }}">View PDF</a>
+{% endblock %}

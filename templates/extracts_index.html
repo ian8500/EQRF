@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Extracts{% endblock %}
+
+{% block content %}
+<h1>📚 Extracts</h1>
+<div class="extracts-category-buttons">
+    {# List all top-level categories (folders) #}
+    {% for category in categories %}
+        <form action="{{ url_for('extracts_category', subpath=category) }}" method="get" style="margin: 0;">
+            <button type="submit" class="extract-btn">{{ category }}</button>
+        </form>
+    {% endfor %}
+
+    {# If you want to show PDFs at root level (rare, but your logic allows) #}
+    {% if root_files %}
+        {% for pdf in root_files %}
+            <form action="{{ url_for('extracts_viewer', category='', filename=pdf) }}" method="get" style="margin: 0;">
+                <button type="submit" class="extract-btn">{{ pdf }}</button>
+            </form>
+        {% endfor %}
+    {% endif %}
+</div>
+{% endblock %}

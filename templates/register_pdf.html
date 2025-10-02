@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}Admin – Register PDFs{% endblock %}
+
+{% block content %}
+<h1>Admin – Register PDFs</h1>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <ul class="flashes">
+      {% for category, message in messages %}
+        <li class="flash {{ category }}">{{ message }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+{% endwith %}
+
+<div class="admin-grid" style="display:grid; gap:1rem; grid-template-columns: 1fr 1fr; align-items:start;">
+  <!-- Upload PDF -->
+  <section class="card" style="border:1px solid #ddd; border-radius:12px; padding:16px;">
+    <h2 style="margin-top:0;">Upload PDF to Extracts</h2>
+
+    <form method="post" enctype="multipart/form-data" onsubmit="return setCategoryPath();">
+      <!-- Choose existing category -->
+      <label for="existing_category"><strong>Existing category</strong></label><br>
+      <select id="existing_category" style="width:100%; padding:.4rem; margin:.4rem 0;">
+        <option value="">— Select (or type new below) —</option>
+        {% for path in extract_paths %}
+          <option value="{{ path }}">{{ path }}</option>
+        {% endfor %}
+        <option value="--">-- (home)</option>
+      </select>
+
+      <!-- Or type a new category path -->
+      <label for="new_category"><strong>New category (e.g. AIR/SID)</strong></label><br>
+      <input id="new_category" type="text" placeholder="Type full path or leave blank"
+             style="width:100%; padding:.4rem; margin:.4rem 0;">
+
+      <!-- Hidden field your route expects -->
+      <input type="hidden" name="category_path" id="category_path" value="">
+
+      <!-- Orientation -->
+      <label for="orientation"><strong>Orientation</strong></label><br>
+      <select name="orientation" id="orientation" style="width:100%; padding:.4rem; margin:.4rem 0;">
+        <option value="portrait" selected>Portrait</option>
+        <option value="landscape">Landscape</option>
+      </select>
+
+      <!-- PDF file -->
+      <label for="pdf"><strong>PDF file</strong></label><br>
+      <input type="file" name="pdf" id="pdf" accept="application/pdf" required
+             style="width:100%; padding:.4rem; margin:.4rem 0;">
+
+      <button type="submit" class="btn">Upload</button>
+    </form>
+
+    <p style="font-size:.9rem; color:#555; margin-top:.75rem;">
+      Tip: If you enter a <em>New category</em>, that will be used. Otherwise the selected <em>Existing category</em> will be used.
+    </p>
+  </section>
+
+  <!-- Checklist management -->
+  <section class="card" style="border:1px solid #ddd; border-radius:12px; padding:16px;">
+    <h2 style="margin-top:0;">Checklists</h2>
+    {% if checklist_paths and checklist_paths|length %}
+      <ul style="list-style:none; padding-left:0; margin:0;">
+        {% for path in checklist_paths %}
+          <li style="display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.4rem 0; border-bottom:1px dashed #eee;">
+            <span>{{ path }}</span>
+            <span style="display:flex; gap:.5rem;">
+              <a class="btn" href="{{ url_for('edit_checklist', path=path) }}" style="text-decoration:none; padding:.3rem .6rem;">Edit</a>
+              <form action="{{ url_for('delete_checklist', path=path) }}" method="post" onsubmit="return confirm('Delete checklist: {{ path }} ?');" style="display:inline;">
+                <button class="btn danger" type="submit">Delete</button>
+              </form>
+            </span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>No checklists found.</p>
+    {% endif %}
+  </section>
+
+  <!-- Existing extract categories (delete whole category) -->
+  <section class="card" style="border:1px solid #ddd; border-radius:12px; padding:16px; grid-column: 1 / -1;">
+    <h2 style="margin-top:0;">Existing Extract Categories</h2>
+    {% if extract_paths and extract_paths|length %}
+      <ul style="list-style:none; padding-left:0; margin:0;">
+        {% for path in extract_paths %}
+          <li style="display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.4rem 0; border-bottom:1px dashed #eee;">
+            <span>{{ path }}</span>
+            <form action="{{ url_for('delete_category', category=path) }}" method="post"
+                  onsubmit="return confirm('Delete entire category and all PDFs: {{ path }} ?');"
+                  style="display:inline;">
+              <button class="btn danger" type="submit">Delete Category</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>No extract categories yet.</p>
+    {% endif %}
+  </section>
+
+  <!-- Files by category (recursive) -->
+  <section class="card" style="border:1px solid #ddd; border-radius:12px; padding:16px; grid-column: 1 / -1;">
+    <h2 style="margin-top:0;">Files by category</h2>
+
+    {% macro render_category(node, prefix="") %}
+      {% if node is mapping %}
+        {# Recurse into subcategories (no duplicate file listing) #}
+        {% for k, v in node.items() if k != "__files__" %}
+          {% set full = (prefix ~ "/" ~ k) if prefix else k %}
+          <details style="margin:.3rem 0;">
+            <summary><strong>{{ full }}</strong></summary>
+            {{ render_category(v, full) }}
+          </details>
+        {% endfor %}
+
+        {# Files directly under the current node #}
+        {% if node.get("__files__") %}
+          {% set here = prefix or "--" %}
+          <ul style="list-style:none; padding-left:0; margin:.3rem 0 1rem;">
+            {% for fname in node["__files__"] %}
+              <li style="display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.25rem 0; border-bottom:1px dotted #eee;">
+                <span>📄 {{ fname }}</span>
+                <form action="{{ url_for('delete_pdf', category=here, filename=fname) }}"
+                      method="post"
+                      onsubmit="return confirm('Delete {{ fname }} from {{ here }}?');"
+                      style="display:inline;">
+                  <button class="btn danger" type="submit">Delete</button>
+                </form>
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      {% endif %}
+    {% endmacro %}
+
+    {# "extracts" is normalized in app.py so __files__ is a list of strings #}
+    {{ render_category(extracts) }}
+  </section>
+</div>
+
+<form action="{{ url_for('trigger_refresh') }}" method="post" onsubmit="return confirm('Force refresh all clients?');" style="margin-top: 15px;">
+  <button class="btn" type="submit">Trigger Refresh</button>
+</form>
+
+<script>
+  function setCategoryPath() {
+    const existing = document.getElementById('existing_category').value.trim();
+    const newer = document.getElementById('new_category').value.trim();
+    const target = document.getElementById('category_path');
+    target.value = newer || existing || '';
+    if (!target.value) {
+      alert('Please choose an existing category or type a new one.');
+      return false;
+    }
+    return true;
+  }
+</script>
+
+<style>
+  .btn { background:#0b5ed7; color:#fff; border:none; padding:.45rem .8rem; border-radius:8px; cursor:pointer; }
+  .btn:hover { opacity:.95; }
+  .btn.danger { background:#c0392b; }
+  .flashes { margin:0 0 1rem 0; padding:0; list-style:none; }
+  .flash { padding:.5rem .75rem; border-radius:8px; margin-bottom:.5rem; }
+  .flash.success { background:#e8f6ec; color:#1e6b2d; }
+  .flash.info { background:#eaf2fd; color:#0b5ed7; }
+  .flash.warning { background:#fff3cd; color:#7a5a00; }
+  .flash.danger { background:#fdecea; color:#842029; }
+  details > summary { cursor:pointer; }
+</style>
+{% endblock %}

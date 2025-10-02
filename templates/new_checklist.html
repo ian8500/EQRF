@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}New Checklist{% endblock %}
+
+{% block content %}
+<h2>Create New Checklist</h2>
+
+<form method="POST">
+    <label>Checklist Path (e.g. AIR/Startup/Initial):<br>
+        <input type="text" name="checklist_path" required>
+    </label><br><br>
+
+    <label>Checklist Items (one per line):<br>
+        <textarea name="checklist_items" rows="10" cols="50" required></textarea>
+    </label><br><br>
+
+    <button type="submit">Create Checklist</button>
+</form>
+
+<a class="nav-button" href="{{ url_for('register_pdf') }}">⬅ Back to Admin</a>
+{% endblock %}

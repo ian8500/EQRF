@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ parent.replace('/', ' › ') }} Checklists{% endblock %}
+
+{% block content %}
+<h2>{{ parent.replace('/', ' › ') }} Checklists</h2>
+<div class="button-group">
+  {% for name, value in subcategories.items() %}
+    {% if value is mapping %}
+      <!-- Folder (subcategory) -->
+      <a class="nav-button" href="{{ url_for('checklist_category', category=parent ~ '/' ~ name) }}">📁 {{ name }}</a>
+    {% elif value is sequence %}
+      <!-- Checklist (actual list) -->
+      <a class="nav-button" href="{{ url_for('checklist_category', category=parent ~ '/' ~ name) }}">✏️ {{ name }}</a>
+    {% endif %}
+  {% endfor %}
+</div>
+{% endblock %}

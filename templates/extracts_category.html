@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ category }}{% endblock %}
+
+{% block content %}
+<h2>📁 {{ category }}</h2>
+<div class="extracts-category-buttons">
+    {# Subcategories (folders) FIRST: navigation buttons only #}
+    {% if subcategories %}
+        {% for key in subcategories.keys() %}
+            <form action="{{ url_for('extracts_category', subpath=(category ~ '/' ~ key).lstrip('/')) }}" method="get" style="margin: 0;">
+                <button type="submit" class="extract-btn">📁 {{ key }}</button>
+            </form>
+        {% endfor %}
+    {% endif %}
+
+    {# PDF files at this level #}
+    {% if items %}
+        {% for item in items %}
+            <form action="{{ url_for('viewer', category=category, file_idx=item.idx) }}" method="get" style="margin: 0;">
+                <button type="submit" class="extract-btn">
+                    📄 {{ item.file.pdf[:-4] if item.file.pdf.endswith('.pdf') else item.file.pdf }}
+                </button>
+            </form>
+        {% endfor %}
+    {% endif %}
+</div>
+{% endblock %}

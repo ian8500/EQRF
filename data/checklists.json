@@ -1,0 +1,146 @@
+{
+  "A380": {
+    "Runway 05": [
+      "--- Arrival ---",
+      "Establish A380 at least 12nm from touchdown",
+      "Ensure next ILS arrival is 15nm behind A380",
+      "Vacate at ALPHA or BRAVO",
+      "Runway inspection required before any movement",
+      "Hold abeam the control tower",
+      "Activate East and West RHLs before issuing Stand 30 clearance",
+      "Broadcast on UHF1: 'A380 Road Holding Lights Activated'",
+      "--- Departure ---",
+      "Pilot requests push/start \u2013 respond 'Standby'",
+      "Contact AOU and request West RHLs",
+      "Broadcast on UHF1: 'A380 Road Holding Lights Activated'",
+      "Confirm road system safeguarded (via AOU)",
+      "Issue pushback (onto GOLF)",
+      "Coordinate with ADC/INT as A380 begins taxi",
+      "Advise INT",
+      "--- Pushback ---",
+      "Taxi to G2",
+      "--- Taxi ---",
+      "Coordinate taxi clearance with ADC and INT",
+      "Ensure next ILS arrival is 10nm behind A380 at takeoff roll",
+      "Runway inspection required before any movement",
+      "Keep INT informed of inspection progress"
+    ],
+    "Runway 23": [
+      "--- Arrival ---",
+      "Establish A380 at least 12nm from touchdown",
+      "Ensure next ILS arrival is 15nm behind A380",
+      "Vacate at ALPHA or BRAVO",
+      "Runway inspection required before any movement",
+      "Hold abeam the control tower",
+      "Activate East and West RHLs before issuing Stand 30 clearance",
+      "Broadcast on UHF1: 'A380 Road Holding Lights Activated'",
+      "--- Departure ---",
+      "Pilot requests push/start \u2013 respond 'Standby'",
+      "Contact AOU and request West RHLs",
+      "Broadcast on UHF1: 'A380 Road Holding Lights Activated'",
+      "Confirm road system safeguarded (via AOU)",
+      "Issue pushback (onto GOLF)",
+      "Coordinate with ADC/INT as A380 begins taxi",
+      "Advise INT",
+      "--- Pushback ---",
+      "Taxi to G2",
+      "--- Taxi ---",
+      "Coordinate taxi clearance with ADC and INT",
+      "Ensure next ILS arrival is 10nm behind A380 at takeoff roll",
+      "Runway inspection required before any movement",
+      "Keep INT informed of inspection progress"
+    ]
+  },
+  "Tower": {
+    "AIR": {
+      "Runway Change": [
+        "--- Coordination ---",
+        "Co-ordinate with Radar: Last inbound [CAT A Min]",
+        "Co-ordinate with Radar: Last outbound [CAT A Min]",
+        "Co-ordinate with GMC: Taxiing aircraft [CAT A Min]",
+        "--- Notifications ---",
+        "Inform ACC (before switching the ILS) [CAT A Min]",
+        "Inform AOU (before switching the ILS) [CAT A Min]",
+        "Inform DEO (before switching the ILS) [CAT A Min]",
+        "ADC change RWY designator on EFPS display",
+        "--- ILS and INT ---",
+        "Switch ILS and inform INT category [CAT A Min]",
+        "--- Lighting ---",
+        "Change approach/runway lighting [CAT A Min]",
+        "R/T broadcast: ADC & GMC",
+        "--- Updates ---",
+        "Inform PC DTS (OSS Line)",
+        "Inform EGPH",
+        "Inform EGPK",
+        "Change wind dials",
+        "Update ATIS",
+        "Update log book [CAT A Min]",
+        "Update information board"
+      ],
+      "Morning Setup": [
+        "Check frequency",
+        "Inspect equipment"
+      ],
+      "A380 Runway 05": [
+        "--- Arrival ---",
+        "Establish A380 at least 12nm from touchdown",
+        "Ensure next ILS arrival is 15nm behind A380",
+        "Vacate at ALPHA or BRAVO",
+        "Runway inspection required before any movement",
+        "Hold abeam the control tower",
+        "Activate East and West RHLs before issuing Stand 30 clearance",
+        "Broadcast on UHF1: 'A380 Road Holding Lights Activated'",
+        "--- Departure ---",
+        "Pilot requests push/start \u2013 respond 'Standby'",
+        "Contact AOU and request West RHLs",
+        "Broadcast on UHF1: 'A380 Road Holding Lights Activated'",
+        "Confirm road system safeguarded (via AOU)",
+        "Issue pushback (onto GOLF)",
+        "Coordinate with ADC/INT as A380 begins taxi",
+        "Advise INT",
+        "--- Pushback ---",
+        "Taxi to G2",
+        "--- Taxi ---",
+        "Coordinate taxi clearance with ADC and INT",
+        "Ensure next ILS arrival is 10nm behind A380 at takeoff roll",
+        "Runway inspection required before any movement",
+        "Keep INT informed of inspection progress"
+      ]
+    },
+    "GMC": {
+      "Apron Lights": [
+        "Turn on apron lighting",
+        "Check standby"
+      ],
+      "Vehicle Checks": [
+        "Inspect vehicle access points"
+      ],
+      "Runway Ops": [
+        "Clear runway",
+        "Check surface state"
+      ]
+    },
+    "ADC": {
+      "Departure Brief": [
+        "Review SIDs",
+        "Brief weather"
+      ],
+      "Flight Progress": [
+        "Strip updates",
+        "Radar coordination"
+      ]
+    }
+  },
+  "Radar": {
+    "FIN": {
+      "Arrival Setup": [
+        "Load sector data",
+        "Brief flow manager"
+      ]
+    },
+    "INT": [
+      "Review logs",
+      "Coord with INT"
+    ]
+  }
+}

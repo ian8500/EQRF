@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Edit Checklist{% endblock %}
+
+{% block content %}
+<h2>Edit Checklist</h2>
+<form method="post">
+    <textarea name="checklist_text" rows="20" style="width:100%">{{ checklist_text }}</textarea>
+    <br><br>
+    <input type="submit" value="Save Checklist" class="nav-button">
+</form>
+<a href="{{ url_for('register_pdf') }}" class="nav-button">⬅️ Back to Admin Panel</a>
+{% endblock %}

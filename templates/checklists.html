@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Checklists{% endblock %}
+{% block content %}
+<h2>Select a Category</h2>
+<div class="button-group">
+  {% for name, value in categories.items() %}
+    {% if value is mapping %}
+      <!-- Folder -->
+      <a class="nav-button" href="{{ url_for('checklist_category', category=name) }}">📁 {{ name }}</a>
+    {% elif value is sequence %}
+      <!-- Actual checklist -->
+      <a class="nav-button" href="{{ url_for('checklist_category', category=name) }}">✏️ {{ name }}</a>
+    {% endif %}
+  {% endfor %}
+</div>
+{% endblock %}

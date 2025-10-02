@@ -1,0 +1,6 @@
+{% if session.admin %}
+  <a class="nav-button" href="{{ url_for('register_pdf') }}">⚙️ Admin</a>
+  <a class="nav-button" href="{{ url_for('logout') }}">🚪 Logout</a>
+{% else %}
+  <a class="nav-button" href="{{ url_for('login') }}">🔐 Admin Login</a>
+{% endif %}

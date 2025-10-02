@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Admin Login{% endblock %}
+
+{% block content %}
+<h2>Admin Login</h2>
+
+<!-- Flash messages -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <ul class="flashes">
+    {% for category, message in messages %}
+      <li class="{{ category }}">{{ message }}</li>
+    {% endfor %}
+    </ul>
+  {% endif %}
+{% endwith %}
+
+<form method="post">
+    <label>Username:
+        <input type="text" name="username" required>
+    </label><br><br>
+    <label>Password:
+        <input type="password" name="password" required>
+    </label><br><br>
+    <button type="submit">Login</button>
+</form>
+{% endblock %}
