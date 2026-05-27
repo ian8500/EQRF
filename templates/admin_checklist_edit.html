@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Create Checklist' if mode == 'new' else 'Edit Checklist' }}{% endblock %}
+
+{% block content %}
+<section class="page-shell">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Checklist management</p>
+      <h2 class="page-title">{{ 'Create Checklist' if mode == 'new' else 'Edit Checklist' }}</h2>
+      <p class="page-copy">Maintain nested checklist content with operational section headers and critical-item highlighting.</p>
+    </div>
+  </div>
+
+  <div class="editor-grid">
+    <section class="card">
+      <form id="checklist-editor-form" class="form-stack" method="post" action="{{ url_for('admin_checklist_new') if mode == 'new' else url_for('admin_checklist_edit') }}">
+        <input type="hidden" name="original_path" value="{{ original_path or path }}">
+
+        <label for="path">
+          Checklist path
+          <input id="path" name="path" type="text" value="{{ path }}" placeholder="Example: A380/Runway 05" required>
+        </label>
+
+        <label for="lines">
+          Checklist lines
+          <textarea id="lines" name="lines" rows="18" required>{{ text }}</textarea>
+        </label>
+
+        <label class="check-control">
+          <input type="checkbox" name="overwrite_folder" value="true">
+          Allow replacing an existing folder at this path
+        </label>
+
+        <div class="admin-actions">
+          <button class="btn success" type="submit">Save</button>
+          <button class="btn" type="button" id="preview-command">Preview</button>
+          <a class="btn" href="{{ url_for('admin_checklists') }}">Cancel</a>
+        </div>
+      </form>
+
+      {% if mode != 'new' %}
+        <form class="delete-panel" action="{{ url_for('admin_checklist_delete') }}" method="post" onsubmit="return confirm('Delete checklist {{ original_path or path }}?');">
+          <input type="hidden" name="path" value="{{ original_path or path }}">
+          <button class="btn danger" type="submit">Delete</button>
+        </form>
+      {% endif %}
+    </section>
+
+    <aside class="card">
+      <div>
+        <p class="eyebrow">Syntax</p>
+        <h3>Line handling</h3>
+      </div>
+      <ul class="syntax-list">
+        <li><code>--- Arrival ---</code> creates an amber section divider.</li>
+        <li><code>CAT A ONLY</code> displays as a critical red item.</li>
+        <li>Blank lines are ignored when saved.</li>
+      </ul>
+
+      <div class="preview-panel" id="preview-panel">
+        <div class="section-title-row">
+          <div>
+            <span class="tile-code">Live preview</span>
+            <strong id="preview-title">{{ path or 'New Checklist' }}</strong>
+          </div>
+        </div>
+        <ul class="preview-list" id="preview-list"></ul>
+      </div>
+    </aside>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const pathInput = document.getElementById('path');
+  const linesInput = document.getElementById('lines');
+  const previewList = document.getElementById('preview-list');
+  const previewTitle = document.getElementById('preview-title');
+  const previewCommand = document.getElementById('preview-command');
+  const previewPanel = document.getElementById('preview-panel');
+
+  function renderPreview() {
+    const title = (pathInput.value || 'New Checklist').trim();
+    previewTitle.textContent = title;
+    previewList.innerHTML = '';
+
+    linesInput.value.split(/\r?\n/).forEach(function (rawLine) {
+      const line = rawLine.trim();
+      if (!line) return;
+
+      const item = document.createElement('li');
+      if (line.startsWith('---')) {
+        item.className = 'preview-section';
+        item.textContent = line.replace(/-/g, '').trim();
+      } else {
+        item.className = line.includes('CAT A ONLY') ? 'preview-row preview-cat-a' : 'preview-row';
+        item.textContent = line;
+      }
+      previewList.appendChild(item);
+    });
+  }
+
+  pathInput.addEventListener('input', renderPreview);
+  linesInput.addEventListener('input', renderPreview);
+  previewCommand.addEventListener('click', function () {
+    renderPreview();
+    previewPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+  renderPreview();
+});
+</script>
+{% endblock %}

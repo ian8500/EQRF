@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Checklist Console{% endblock %}
+
+{% block content %}
+<section class="page-shell">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Checklist management</p>
+      <h2 class="page-title">Checklist Console</h2>
+      <p class="page-copy">Create, edit, preview, and remove nested checklist content.</p>
+    </div>
+    <a class="btn success" href="{{ url_for('admin_checklist_new') }}">Create checklist</a>
+  </div>
+
+  <section class="card">
+    {% if checklist_paths %}
+      <ul class="admin-list">
+        {% for checklist in checklist_paths %}
+          <li class="admin-list-item">
+            <div class="document-summary">
+              <strong>{{ checklist.path }}</strong>
+              <span>{{ checklist.item_count }} item{{ '' if checklist.item_count == 1 else 's' }}</span>
+            </div>
+            <div class="admin-actions">
+              <a class="btn" href="{{ url_for('admin_checklist_preview', path=checklist.path) }}">Preview</a>
+              <a class="btn" href="{{ url_for('admin_checklist_edit', path=checklist.path) }}">Edit</a>
+              <form action="{{ url_for('admin_checklist_delete') }}" method="post" onsubmit="return confirm('Delete checklist {{ checklist.path }}?');">
+                <input type="hidden" name="path" value="{{ checklist.path }}">
+                <button class="btn danger" type="submit">Delete</button>
+              </form>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="page-copy">No checklists found.</p>
+    {% endif %}
+  </section>
+
+  {% if invalid_checklists %}
+    <section class="card">
+      <p class="eyebrow">Integrity warning</p>
+      <h3>Invalid checklist structures</h3>
+      <ul class="health-list">
+        {% for issue in invalid_checklists %}
+          <li>{{ issue.path }}: {{ issue.message }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+</section>
+{% endblock %}

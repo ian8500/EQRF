@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+{% block title %}Admin Console{% endblock %}
+
+{% block content %}
+<section class="page-shell">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Content management console</p>
+      <h2 class="page-title">Admin</h2>
+      <p class="page-copy">Manage local PDF extracts, checklist content, rendered assets, and content health for Glasgow E-QRF.</p>
+    </div>
+  </div>
+
+  <section class="overview-grid">
+    <article class="metric-card">
+      <span class="tile-code">Extract categories</span>
+      <strong>{{ overview.extract_categories }}</strong>
+    </article>
+    <article class="metric-card">
+      <span class="tile-code">Registered PDFs</span>
+      <strong>{{ overview.registered_pdfs }}</strong>
+    </article>
+    <article class="metric-card">
+      <span class="tile-code">Checklist categories</span>
+      <strong>{{ overview.checklist_categories }}</strong>
+    </article>
+    <article class="metric-card">
+      <span class="tile-code">Checklist items</span>
+      <strong>{{ overview.checklist_items }}</strong>
+    </article>
+    <article class="metric-card warning">
+      <span class="tile-code">Health warnings</span>
+      <strong>{{ overview.warning_count }}</strong>
+    </article>
+  </section>
+
+  <div class="admin-grid">
+    <section class="card">
+      <div>
+        <p class="eyebrow">PDF extract management</p>
+        <h3>Upload new PDF</h3>
+      </div>
+
+      <form class="form-stack" action="{{ url_for('upload_pdf') }}" method="post" enctype="multipart/form-data">
+        <label for="existing_category">
+          Existing category
+          <select id="existing_category" name="existing_category">
+            <option value="">Select existing category</option>
+            {% for path in extract_paths %}
+              <option value="{{ path }}">{{ path }}</option>
+            {% endfor %}
+            <option value="--">-- home quick reference</option>
+          </select>
+        </label>
+
+        <label for="new_category">
+          New category path
+          <input id="new_category" name="new_category" type="text" placeholder="Example: AIR/SID">
+        </label>
+
+        <label for="orientation">
+          Orientation
+          <select name="orientation" id="orientation">
+            <option value="auto" selected>Auto-detect</option>
+            <option value="portrait">Force portrait</option>
+            <option value="landscape">Force landscape</option>
+          </select>
+        </label>
+
+        <label for="file">
+          PDF file
+          <input type="file" name="file" id="file" accept="application/pdf" required>
+        </label>
+
+        <label class="check-control">
+          <input type="checkbox" name="replace" value="true">
+          Replace existing file in selected category
+        </label>
+
+        <button type="submit" class="btn success">Upload and convert</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <div>
+        <p class="eyebrow">Checklist management</p>
+        <h3>Checklist console</h3>
+      </div>
+      <p class="page-copy">Create, edit, preview, and remove nested operational checklists.</p>
+      <div class="admin-actions">
+        <a class="btn success" href="{{ url_for('admin_checklist_new') }}">Create checklist</a>
+        <a class="btn" href="{{ url_for('admin_checklists') }}">Open checklist tree</a>
+      </div>
+    </section>
+
+    <section class="card admin-span">
+      <div class="section-title-row">
+        <div>
+          <p class="eyebrow">Extract tree</p>
+          <h3>Registered PDF extracts</h3>
+        </div>
+      </div>
+
+      <div class="admin-tree">
+        {% for category in extract_categories %}
+          <article class="tree-panel">
+            <div class="tree-panel-header">
+              <div>
+                <span class="tile-code">Category</span>
+                <strong>{{ category.path }}</strong>
+                <span class="tile-meta">{{ category.file_count }} file{{ '' if category.file_count == 1 else 's' }}</span>
+              </div>
+              <form action="{{ url_for('delete_category') }}" method="post" onsubmit="return confirm('Delete category {{ category.path }} and its registered PDF entries?');">
+                <input type="hidden" name="category" value="{{ category.path }}">
+                <button class="btn danger" type="submit">Delete category</button>
+              </form>
+            </div>
+
+            {% if category.files %}
+              <ul class="admin-list">
+                {% for file in category.files %}
+                  <li class="admin-list-item document-row">
+                    <div class="document-summary">
+                      <strong>{{ file.title }}</strong>
+                      <span>{{ file.filename }}</span>
+                      <div class="status-chip-row">
+                        {% if file.issue_count %}
+                          {% for issue in file.issues %}
+                            <span class="status-chip warning">{{ issue.type.replace('_', ' ') }}</span>
+                          {% endfor %}
+                        {% else %}
+                          <span class="status-chip ok">Assets OK</span>
+                        {% endif %}
+                        <span class="status-chip">{{ file.metadata.page_count or file.jpgs|length }} page{{ '' if (file.metadata.page_count or file.jpgs|length) == 1 else 's' }}</span>
+                        <span class="status-chip">{{ file.metadata.orientation or 'unknown' }}</span>
+                      </div>
+                    </div>
+                    <div class="admin-actions">
+                      <a class="btn" href="{{ url_for('extracts_viewer', category=category.path, filename=file.filename) }}">View</a>
+                      <form action="{{ url_for('regenerate_pdf') }}" method="post">
+                        <input type="hidden" name="category" value="{{ category.path }}">
+                        <input type="hidden" name="filename" value="{{ file.filename }}">
+                        <button class="btn" type="submit">Regenerate JPGs</button>
+                      </form>
+                      <form action="{{ url_for('delete_pdf') }}" method="post" onsubmit="return confirm('Delete {{ file.filename }} from {{ category.path }}?');">
+                        <input type="hidden" name="category" value="{{ category.path }}">
+                        <input type="hidden" name="filename" value="{{ file.filename }}">
+                        <button class="btn danger" type="submit">Delete PDF</button>
+                      </form>
+                    </div>
+                  </li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <p class="page-copy">No PDFs registered directly in this category.</p>
+            {% endif %}
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="card admin-span">
+      <div>
+        <p class="eyebrow">Checklist tree</p>
+        <h3>Operational checklists</h3>
+      </div>
+      {% if checklist_paths %}
+        <ul class="admin-list">
+          {% for checklist in checklist_paths %}
+            <li class="admin-list-item">
+              <div class="document-summary">
+                <strong>{{ checklist.path }}</strong>
+                <span>{{ checklist.item_count }} item{{ '' if checklist.item_count == 1 else 's' }}</span>
+              </div>
+              <div class="admin-actions">
+                <a class="btn" href="{{ url_for('admin_checklist_preview', path=checklist.path) }}">Preview</a>
+                <a class="btn" href="{{ url_for('admin_checklist_edit', path=checklist.path) }}">Edit</a>
+                <form action="{{ url_for('admin_checklist_delete') }}" method="post" onsubmit="return confirm('Delete checklist {{ checklist.path }}?');">
+                  <input type="hidden" name="path" value="{{ checklist.path }}">
+                  <button class="btn danger" type="submit">Delete</button>
+                </form>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="page-copy">No checklists found.</p>
+      {% endif %}
+    </section>
+
+    <section class="card admin-span">
+      <div>
+        <p class="eyebrow">System health</p>
+        <h3>Content integrity</h3>
+      </div>
+      <div class="health-grid">
+        <div>
+          <h4>Missing source PDFs</h4>
+          {% if health.missing_pdfs %}
+            <ul class="health-list">
+              {% for item in health.missing_pdfs %}
+                <li>{{ item.category }} / {{ item.filename }}</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="status-chip ok">None</p>
+          {% endif %}
+        </div>
+        <div>
+          <h4>Missing or zero JPGs</h4>
+          {% if health.missing_jpgs %}
+            <ul class="health-list">
+              {% for item in health.missing_jpgs %}
+                <li>{{ item.category }} / {{ item.filename }}</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="status-chip ok">None</p>
+          {% endif %}
+        </div>
+        <div>
+          <h4>Orphan JPGs</h4>
+          {% if health.orphan_jpgs %}
+            <ul class="health-list">
+              {% for jpg in health.orphan_jpgs[:20] %}
+                <li>{{ jpg }}</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="status-chip ok">None</p>
+          {% endif %}
+        </div>
+        <div>
+          <h4>Empty extract categories</h4>
+          {% if health.empty_categories %}
+            <ul class="health-list">
+              {% for category in health.empty_categories %}
+                <li>{{ category.path }}</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="status-chip ok">None</p>
+          {% endif %}
+        </div>
+        <div>
+          <h4>Invalid checklist structures</h4>
+          {% if health.invalid_checklists %}
+            <ul class="health-list">
+              {% for issue in health.invalid_checklists %}
+                <li>{{ issue.path }}: {{ issue.message }}</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="status-chip ok">None</p>
+          {% endif %}
+        </div>
+        <div>
+          <h4>Duplicate PDF filenames</h4>
+          {% if health.duplicate_pdfs %}
+            <ul class="health-list">
+              {% for item in health.duplicate_pdfs %}
+                <li>{{ item.filename }} ({{ item.count }})</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="status-chip ok">None</p>
+          {% endif %}
+        </div>
+        <div>
+          <h4>JSON read/write status</h4>
+          <ul class="health-list">
+            {% for label, status in health.json_status.items() %}
+              <li>{{ label }}: read {{ 'OK' if status.readable else 'FAIL' }}, write {{ 'OK' if status.writable else 'FAIL' }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+    </section>
+  </div>
+</section>
+{% endblock %}
