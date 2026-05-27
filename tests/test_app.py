@@ -1,3 +1,4 @@
+import io
 import re
 from types import SimpleNamespace
 
@@ -28,6 +29,8 @@ from app import (
     metadata_status_label,
     normalise_file_entry,
     normalise_category_path,
+    get_general_reference_entries,
+    search_general_reference_entries,
     safe_path_parts,
     upsert_checklist,
     upsert_checklist_with_metadata,
@@ -184,6 +187,63 @@ def test_admin_edit_pages_require_login(client):
 
     assert extract_response.status_code == 302
     assert checklist_response.status_code == 302
+
+
+def test_admin_upload_includes_general_reference_option(client, monkeypatch):
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+    client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
+
+    response = client.get('/admin')
+
+    assert response.status_code == 200
+    assert b'General Reference' in response.data
+
+
+def test_blank_category_upload_stores_as_general_reference(client, isolated_content, monkeypatch):
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+    client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
+
+    def fake_render(pdf_path, output_dir, filename):
+        jpg = filename.replace('.pdf', '_page1.jpg')
+        (output_dir / jpg).write_bytes(b'jpg')
+        return [jpg], 'portrait'
+
+    def fake_save(extracts):
+        isolated_content.extracts.clear()
+        isolated_content.extracts.update(extracts)
+
+    monkeypatch.setattr(app_module, '_render_pdf_to_jpg_dir', fake_render)
+    monkeypatch.setattr(app_module, 'save_extracts', fake_save)
+
+    response = client.post(
+        '/admin/upload_pdf',
+        data={
+            'file': (io.BytesIO(b'%PDF-1.4\nblank category'), 'General.pdf'),
+            'existing_category': '',
+            'new_category': '',
+            'orientation': 'auto',
+            'title': 'General Upload',
+        },
+        content_type='multipart/form-data',
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert '--' in isolated_content.extracts
+    assert file_entry_name(isolated_content.extracts['--']['__files__'][0]) == 'General.pdf'
+
+
+def test_admin_can_see_general_reference_pdf(client, isolated_content, monkeypatch):
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+    isolated_content.publish_pdf('AdminRef.pdf')
+    isolated_content.extracts.update({'--': {'__files__': [{'pdf': 'AdminRef.pdf', 'title': 'Admin Ref'}]}})
+    client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
+
+    response = client.get('/admin')
+
+    assert response.status_code == 200
+    assert b'General Reference' in response.data
+    assert b'Admin Ref' in response.data
 
 
 def test_trigger_refresh_requires_admin(client):
@@ -460,6 +520,41 @@ def test_empty_extract_folders_and_missing_assets_are_hidden(client, isolated_co
     assert filtered_extract_tree(isolated_content.extracts) == {}
 
 
+def test_extracts_index_hides_general_reference_sources(client, isolated_content):
+    isolated_content.publish_pdf('HomeRef.pdf')
+    isolated_content.publish_pdf('RootRef.pdf')
+    isolated_content.publish_pdf('MiscRef.pdf')
+    isolated_content.publish_pdf('Sid.pdf')
+    isolated_content.extracts.update({
+        '--': {'__files__': [{'pdf': 'HomeRef.pdf', 'title': 'Home Ref'}]},
+        '__files__': [{'pdf': 'RootRef.pdf', 'title': 'Root Ref'}],
+        'MISC': {'__files__': [{'pdf': 'MiscRef.pdf', 'title': 'Misc Ref'}]},
+        'AIR': {'SID': {'__files__': [{'pdf': 'Sid.pdf', 'title': 'SID Ref'}]}},
+    })
+
+    response = client.get('/extracts')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'AIR' in html
+    assert 'Home Ref' not in html
+    assert 'Root Ref' not in html
+    assert 'Misc Ref' not in html
+    assert 'MISC' not in html
+
+
+def test_extracts_index_still_shows_operational_misc_subcategories(client, isolated_content):
+    isolated_content.publish_pdf('Ground.pdf')
+    isolated_content.extracts.update({
+        'MISC': {'GROUND': {'__files__': [{'pdf': 'Ground.pdf', 'title': 'Ground Ref'}]}},
+    })
+
+    response = client.get('/extracts')
+
+    assert response.status_code == 200
+    assert b'MISC' in response.data
+
+
 def test_valid_string_and_dict_extract_entries_show(client, isolated_content):
     isolated_content.publish_pdf('ValidString.pdf')
     isolated_content.publish_pdf('ValidDict.pdf', ['ValidDict_page1.jpg'])
@@ -504,6 +599,60 @@ def test_draft_extract_hidden_and_published_extract_visible(client, isolated_con
     assert b'Draft Extract' not in response.data
 
 
+def test_general_reference_search_loads_and_handles_blank(client, isolated_content):
+    response = client.get('/general-reference/search')
+
+    assert response.status_code == 200
+    assert b'General Reference Search' in response.data
+    assert b'No matching General Reference PDFs' not in response.data
+
+
+def test_general_reference_search_finds_by_filename_and_title(client, isolated_content):
+    isolated_content.publish_pdf('MATS1.pdf')
+    isolated_content.publish_pdf('Parking.pdf')
+    isolated_content.extracts.update({
+        '--': {'__files__': [
+            {'pdf': 'MATS1.pdf', 'title': 'MATS 1'},
+            {'pdf': 'Parking.pdf', 'title': 'Parking Reference'},
+        ]},
+    })
+
+    by_filename = client.get('/general-reference/search?q=mats')
+    by_title = client.get('/general-reference/search?q=parking')
+
+    assert by_filename.status_code == 200
+    assert b'MATS 1' in by_filename.data
+    assert b'/viewer/--/MATS1.pdf' in by_filename.data
+    assert b'Parking Reference' in by_title.data
+
+
+def test_general_reference_search_excludes_categorised_extracts_and_checklists(client, isolated_content):
+    isolated_content.publish_pdf('General.pdf')
+    isolated_content.publish_pdf('Categorised.pdf')
+    isolated_content.extracts.update({
+        '--': {'__files__': [{'pdf': 'General.pdf', 'title': 'Parking General'}]},
+        'AIR': {'__files__': [{'pdf': 'Categorised.pdf', 'title': 'Parking Categorised'}]},
+    })
+    isolated_content.checklists.update({'Tower': {'Parking Checklist': ['Line up']}})
+
+    response = client.get('/general-reference/search?q=parking')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'Parking General' in html
+    assert 'Parking Categorised' not in html
+    assert 'Parking Checklist' not in html
+    assert 'http://' not in html
+    assert 'https://' not in html
+
+
+def test_general_reference_search_no_results_message(client, isolated_content):
+    response = client.get('/general-reference/search?q=zzzz')
+
+    assert response.status_code == 200
+    assert b'No matching General Reference PDFs' in response.data
+
+
 def test_home_hides_extracts_card_when_no_valid_extracts(client, isolated_content):
     isolated_content.extracts.update({'AIR': {'__files__': ['Missing.pdf']}})
 
@@ -511,6 +660,40 @@ def test_home_hides_extracts_card_when_no_valid_extracts(client, isolated_conten
 
     assert response.status_code == 200
     assert b'<strong>Extracts</strong>' not in response.data
+
+
+def test_home_shows_general_reference_for_uncategorised_pdfs(client, isolated_content):
+    isolated_content.publish_pdf('MATS1.pdf')
+    isolated_content.extracts.update({'--': {'__files__': [{'pdf': 'MATS1.pdf', 'title': 'MATS 1'}]}})
+
+    response = client.get('/')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'General Reference' in html
+    assert 'MATS 1' in html
+    assert '/viewer/--/MATS1.pdf' in html
+
+
+def test_home_hides_general_reference_when_none_exist(client, isolated_content):
+    response = client.get('/')
+
+    assert response.status_code == 200
+    assert b'General Reference' not in response.data
+
+
+def test_general_reference_collects_root_and_misc_entries(client, isolated_content):
+    isolated_content.publish_pdf('RootRef.pdf')
+    isolated_content.publish_pdf('MiscRef.pdf')
+    isolated_content.extracts.update({
+        '__files__': [{'pdf': 'RootRef.pdf', 'title': 'Root Ref'}],
+        'MISC': {'__files__': [{'pdf': 'MiscRef.pdf', 'title': 'Misc Ref'}]},
+    })
+
+    entries = get_general_reference_entries()
+
+    assert [entry['title'] for entry in entries] == ['Misc Ref', 'Root Ref']
+    assert {entry['source_category'] for entry in entries} == {'--', 'MISC'}
 
 
 def test_invalid_checklist_path_returns_friendly_unavailable_page(client, isolated_content):

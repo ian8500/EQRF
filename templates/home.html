@@ -29,7 +29,7 @@
     {% endif %}
   </div>
 
-  {% if not has_checklists and not has_extracts and not home_pdfs %}
+  {% if not has_checklists and not has_extracts and not general_reference_pdfs %}
     <section class="empty-state">
       <h3>No active EQRF content is currently published.</h3>
       {% if session.get("is_admin") %}
@@ -38,16 +38,20 @@
     </section>
   {% endif %}
 
-  {% if home_pdfs %}
-  <section class="ops-panel">
+  {% if general_reference_pdfs %}
+  <section class="ops-panel general-reference-section">
     <div class="panel-heading">
       <div>
-        <h3>Quick Reference</h3>
+        <h3>General Reference</h3>
       </div>
     </div>
-    <div class="quick-ref-grid">
-      {% for pdf in home_pdfs %}
-        <a class="ops-card quick-ref-card" href="{{ url_for('extracts_viewer', category='--', filename=pdf.filename) }}">
+    <form class="general-reference-search" action="{{ url_for('general_reference_search') }}" method="get">
+      <input type="search" name="q" placeholder="Search General Reference" aria-label="Search General Reference">
+      <button class="btn" type="submit">Search</button>
+    </form>
+    <div class="quick-ref-grid general-reference-grid">
+      {% for pdf in general_reference_pdfs %}
+        <a class="ops-card quick-ref-card" href="{{ url_for('extracts_viewer', category=pdf.source_category, filename=pdf.filename) }}">
           <strong>{{ pdf.title }}</strong>
         </a>
       {% endfor %}

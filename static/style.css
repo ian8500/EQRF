@@ -434,6 +434,28 @@ button[type="submit"]:hover {
   gap: 12px;
 }
 
+.general-reference-section {
+  margin-top: clamp(18px, 4vw, 34px);
+}
+
+.general-reference-grid,
+.general-reference-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.general-reference-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.general-reference-search input[type="search"] {
+  flex: 1 1 260px;
+}
+
 .quick-ref-card {
   min-height: 94px;
   border-color: rgba(82, 255, 157, 0.32);

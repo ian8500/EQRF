@@ -35,7 +35,7 @@
               {% for path in extract_paths %}
                 <option value="{{ path }}">{{ path }}</option>
               {% endfor %}
-              <option value="--">-- home quick reference</option>
+              <option value="--">General Reference</option>
             </select>
           </label>
 
@@ -111,7 +111,7 @@
           <article class="tree-panel">
             <div class="tree-panel-header">
               <div>
-                <strong>{{ category.path }}</strong>
+                <strong>{{ 'General Reference' if category.path == '--' else category.path }}</strong>
                 <span class="tile-meta">{{ category.file_count }} file{{ '' if category.file_count == 1 else 's' }}</span>
               </div>
               <form action="{{ url_for('delete_category') }}" method="post" onsubmit="return confirm('Delete category {{ category.path }} and its registered PDF entries?');">

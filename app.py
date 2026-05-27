@@ -1105,6 +1105,69 @@ def public_extract_items_for_node(node: Any, category: str) -> List[Dict[str, An
     return items
 
 
+def general_reference_entry_is_valid(entry: Any) -> bool:
+    return extract_entry_is_valid(entry)
+
+
+def get_general_reference_display_title(entry: Any) -> str:
+    return get_display_title_for_pdf(entry)
+
+
+def _misc_is_general_reference_only(node: Any) -> bool:
+    if isinstance(node, list):
+        return True
+    if not isinstance(node, dict):
+        return False
+    return all(key == '__files__' for key in node.keys())
+
+
+def entry_source_category(entry: Any) -> str:
+    item = normalise_file_entry(entry)
+    return str(item.get('_source_category') or item.get('source_category') or '--')
+
+
+def get_general_reference_entries() -> List[Dict[str, Any]]:
+    extracts = get_extracts()
+    entries: List[Dict[str, Any]] = []
+    seen = set()
+
+    def add_entries(node: Any, source_category: str) -> None:
+        for entry in _list_file_entries_in_node(node):
+            if not general_reference_entry_is_valid(entry):
+                continue
+            filename = file_entry_name(entry)
+            key = (source_category, filename)
+            if key in seen:
+                continue
+            seen.add(key)
+            item = public_extract_item(entry, source_category)
+            if item:
+                item['source_category'] = source_category
+                item['label'] = get_general_reference_display_title(entry)
+                item['title'] = item['label']
+                entries.append(item)
+
+    if isinstance(extracts, dict):
+        add_entries(extracts, '--')
+        add_entries(extracts.get('--'), '--')
+        misc_node = extracts.get('MISC')
+        if _misc_is_general_reference_only(misc_node):
+            add_entries(misc_node, 'MISC')
+
+    return sorted(entries, key=lambda item: item['title'].lower())
+
+
+def search_general_reference_entries(query: Any) -> List[Dict[str, Any]]:
+    q = str(query or '').strip().lower()
+    entries = get_general_reference_entries()
+    if not q:
+        return []
+    return [
+        entry for entry in entries
+        if q in entry['title'].lower() or q in entry['filename'].lower()
+    ]
+
+
 def _ensure_jpgs_for_pdf(
     pdf_path: Path,
     filename: str,
@@ -1665,20 +1728,19 @@ def home():
     extract_tree = filtered_extract_tree(get_extracts()) or {}
     non_home_extracts = {
         key: value for key, value in extract_tree.items()
-        if key not in {'--', '__files__'}
+        if key not in {'--', '__files__'} and not (key == 'MISC' and _misc_is_general_reference_only(value))
     } if isinstance(extract_tree, dict) else {}
-    home_node = _get_node_for_path(extract_tree, ['--']) if isinstance(extract_tree, dict) else None
-    home_pdfs = public_extract_items_for_node(home_node, '--')
+    general_reference_pdfs = get_general_reference_entries()
     checklist_count = len(flatten_checklist_paths(checklist_tree))
     extract_count = len(flatten_valid_extract_files(non_home_extracts))
     return render_template(
         'home.html',
-        home_pdfs=home_pdfs,
+        general_reference_pdfs=general_reference_pdfs,
         has_checklists=checklist_group_has_content(checklist_tree),
         has_extracts=extract_group_has_content(non_home_extracts),
         checklist_count=checklist_count,
         extract_count=extract_count,
-        quick_ref_count=len(home_pdfs),
+        quick_ref_count=len(general_reference_pdfs),
     )
 
 # ---------------------- Checklists ---------------------- #
@@ -1737,15 +1799,26 @@ def extracts_index():
     extracts = filtered_extract_tree(get_extracts()) or {}
     categories = {
         k: v for k, v in extracts.items()
-        if k not in {'--', '__files__'} and extract_group_has_content(v)
+        if k not in {'--', '__files__'}
+        and not (k == 'MISC' and _misc_is_general_reference_only(v))
+        and extract_group_has_content(v)
     } if isinstance(extracts, dict) else {}
-    home_node = _get_node_for_path(extracts, ['--']) if isinstance(extracts, dict) else None
-    root_files = public_extract_items_for_node(home_node, '--')
     return render_template(
         'extracts_index.html',
         categories=categories,
-        root_files=root_files,
-        extract_count=len(flatten_valid_extract_files(categories)) + len(root_files),
+        root_files=[],
+        extract_count=len(flatten_valid_extract_files(categories)),
+    )
+
+
+@app.route('/general-reference/search')
+def general_reference_search():
+    query = request.args.get('q') or ''
+    results = search_general_reference_entries(query)
+    return render_template(
+        'general_reference_search.html',
+        query=query,
+        results=results,
     )
 
 
@@ -1762,6 +1835,8 @@ def extracts_category(subpath):
         normalised = normalise_category_path(subpath)
     except ValueError:
         return _unavailable('Extract category unavailable', 'This extract category is not available in the published EQRF set.', 'Back to Extracts', 'extracts_index')
+    if normalised == 'MISC' and _misc_is_general_reference_only(get_extracts().get('MISC')):
+        return _unavailable('Extract category unavailable', 'This extract category has no valid local EQRF documents published.', 'Back to Extracts', 'extracts_index')
 
     extracts = filtered_extract_tree(get_extracts()) or {}
     node = _get_node_for_path(extracts, safe_path_parts(normalised))
@@ -1804,6 +1879,10 @@ def extracts_viewer(category, filename):
         return _unavailable('Extract unavailable', 'This extract path is not available in the published EQRF set.', 'Back to Extracts', 'extracts_index')
 
     node = _get_node_for_path(extracts, safe_path_parts(normalised_category))
+    if normalised_category == '--' and _find_file_entry(node, filename) is None:
+        root_entry = _find_file_entry(extracts, filename)
+        if root_entry is not None:
+            node = extracts
     if node is None:
         return _unavailable('Extract unavailable', 'This extract category is not registered in local EQRF data.', 'Back to Extracts', 'extracts_index')
 
@@ -1965,7 +2044,7 @@ def upload_pdf():
 
         category = normalise_category_path(raw_category)
         if not category:
-            category = 'MISC'
+            category = '--'
         governance_metadata = metadata_from_form(_pdf_base(safe_name))
         if is_na(request.form.get('version')):
             governance_metadata['version'] = '1.0'
