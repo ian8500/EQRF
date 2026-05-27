@@ -32,96 +32,39 @@
   </aside>
 {% endif %}
 
-<div id="toolbar" class="sticky-toolbar">
-  {% if parent_path == '--' %}
-    <a class="btn" href="{{ url_for('extracts_index') }}">Back to Extracts</a>
-  {% else %}
-    <a class="btn" href="{{ url_for('extracts_category', subpath=parent_path) }}">Back to Category</a>
-  {% endif %}
-  <span class="status-chip">{{ item.page_count }} page{{ '' if item.page_count == 1 else 's' }}</span>
-  <button type="button" onclick="zoomOut()" title="Zoom out">Zoom -</button>
-  <button type="button" onclick="zoomIn()" title="Zoom in">Zoom +</button>
-  <button type="button" onclick="fitWidth()" title="Fit document width">Fit Width</button>
-  <button type="button" onclick="fitHeight()" title="Fit document height">Fit Height</button>
-  <button type="button" onclick="rotate()" title="Rotate document">Rotate</button>
-  <button type="button" onclick="fitToPage()" title="Reset view">Reset View</button>
-</div>
-
-<div class="toolbar-spacer"></div>
-
-<div class="viewer-scroll">
-  <div id="images-container" class="{{ item.orientation }}">
-    {% for jpg in item.jpgs %}
-      <img
-        src="{{ url_for('send_jpg', filename=jpg) }}"
-        alt="{{ page_title }} page {{ loop.index }}"
-        class="extract-image"
-        loading="{{ 'eager' if loop.first else 'lazy' }}"
-        decoding="async">
-    {% endfor %}
+<section class="pdf-viewer-shell" data-page-count="{{ item.page_count }}">
+  <div id="pdf-toolbar" class="pdf-toolbar">
+    {% if parent_path == '--' %}
+      <a class="btn" href="{{ url_for('home') }}">Back</a>
+    {% else %}
+      <a class="btn" href="{{ url_for('extracts_category', subpath=parent_path) }}">Back to Category</a>
+    {% endif %}
+    <span class="page-indicator" id="pdf-page-indicator">Page 1 / {{ item.page_count }}</span>
+    <span class="zoom-indicator" id="pdf-zoom-indicator">Fit Width</span>
+    <span class="zoom-indicator" id="pdf-rotation-indicator">0°</span>
+    <button type="button" id="pdf-zoom-out" title="Zoom out">Zoom -</button>
+    <button type="button" id="pdf-zoom-in" title="Zoom in">Zoom +</button>
+    <button type="button" id="pdf-fit-width" title="Fit document width">Fit Width</button>
+    <button type="button" id="pdf-fit-height" title="Fit document height">Fit Height</button>
+    <button type="button" id="pdf-rotate" title="Rotate document">Rotate</button>
+    <button type="button" id="pdf-reset" title="Reset view">Reset</button>
   </div>
-</div>
 
-<script>
-  let viewerZoom = 1;
-  let viewerRotation = 0;
-
-  function applyViewerTransform() {
-    document.querySelectorAll('.extract-image').forEach((img) => {
-      img.style.transform = `scale(${viewerZoom}) rotate(${viewerRotation}deg)`;
-    });
-  }
-
-  function zoomIn() {
-    viewerZoom = Math.min(3, viewerZoom + 0.1);
-    applyViewerTransform();
-  }
-
-  function zoomOut() {
-    viewerZoom = Math.max(0.3, viewerZoom - 0.1);
-    applyViewerTransform();
-  }
-
-  function rotate() {
-    viewerRotation = (viewerRotation + 90) % 360;
-    applyViewerTransform();
-  }
-
-  function firstImage() {
-    return document.querySelector('.extract-image');
-  }
-
-  function fitWidth() {
-    const img = firstImage();
-    const scroller = document.querySelector('.viewer-scroll');
-    if (!img || !scroller || !img.naturalWidth) return;
-    viewerZoom = Math.max(0.3, Math.min(3, (scroller.clientWidth - 24) / img.naturalWidth));
-    applyViewerTransform();
-  }
-
-  function fitHeight() {
-    const img = firstImage();
-    if (!img || !img.naturalHeight) return;
-    const available = Math.max(320, window.innerHeight - 180);
-    viewerZoom = Math.max(0.3, Math.min(3, available / img.naturalHeight));
-    applyViewerTransform();
-  }
-
-  function fitToPage() {
-    viewerZoom = 1;
-    viewerRotation = 0;
-    applyViewerTransform();
-  }
-
-  function setToolbarHeight() {
-    const toolbar = document.getElementById('toolbar');
-    if (!toolbar) return;
-    document.documentElement.style.setProperty('--toolbar-h', Math.ceil(toolbar.getBoundingClientRect().height) + 'px');
-  }
-
-  document.addEventListener('DOMContentLoaded', setToolbarHeight);
-  window.addEventListener('load', setToolbarHeight, { passive: true });
-  window.addEventListener('resize', setToolbarHeight);
-</script>
+  <div class="pdf-scroll" id="pdf-scroll">
+    <div class="pdf-page-stack" id="pdf-page-stack">
+      {% for jpg in item.jpgs %}
+        <figure class="pdf-page-frame" data-page-index="{{ loop.index0 }}">
+          <figcaption>Page {{ loop.index }} of {{ item.page_count }}</figcaption>
+          <img
+            src="{{ url_for('send_jpg', filename=jpg) }}"
+            alt="{{ page_title }} page {{ loop.index }}"
+            class="pdf-page-image extract-image"
+            loading="{{ 'eager' if loop.first else 'lazy' }}"
+            decoding="async">
+        </figure>
+      {% endfor %}
+    </div>
+  </div>
+</section>
 </section>
 {% endblock %}

@@ -131,6 +131,208 @@ function saveChecklistState() {
       window.location.reload();
     });
   }
+
+
+  // === PDF VIEWER CONTROLS ===
+  (function pdfViewerControls() {
+    const MIN_SCALE = 0.25;
+    const MAX_SCALE = 4;
+    const STEP = 0.1;
+    const MARGIN = 24;
+    const state = {
+      scale: 1,
+      rotation: 0,
+      mode: "width"
+    };
+
+    function clamp(value) {
+      return Math.max(MIN_SCALE, Math.min(MAX_SCALE, value));
+    }
+
+    function viewer() {
+      const shell = document.querySelector(".pdf-viewer-shell");
+      if (!shell) return null;
+      return {
+        shell,
+        scroll: document.getElementById("pdf-scroll"),
+        frames: Array.from(shell.querySelectorAll(".pdf-page-frame")),
+        images: Array.from(shell.querySelectorAll(".pdf-page-image")),
+        fitWidthButton: document.getElementById("pdf-fit-width"),
+        fitHeightButton: document.getElementById("pdf-fit-height"),
+        zoomIndicator: document.getElementById("pdf-zoom-indicator"),
+        rotationIndicator: document.getElementById("pdf-rotation-indicator"),
+        pageIndicator: document.getElementById("pdf-page-indicator")
+      };
+    }
+
+    function dimensionsFor(img, scale = state.scale, rotation = state.rotation) {
+      const naturalWidth = img.naturalWidth || Number(img.dataset.naturalWidth) || 1;
+      const naturalHeight = img.naturalHeight || Number(img.dataset.naturalHeight) || 1;
+      const imageWidth = naturalWidth * scale;
+      const imageHeight = naturalHeight * scale;
+      const rotated = rotation % 180 !== 0;
+      return {
+        imageWidth,
+        imageHeight,
+        layoutWidth: rotated ? imageHeight : imageWidth,
+        layoutHeight: rotated ? imageWidth : imageHeight,
+        naturalLayoutWidth: rotated ? naturalHeight : naturalWidth,
+        naturalLayoutHeight: rotated ? naturalWidth : naturalHeight
+      };
+    }
+
+    function currentPageContext(parts) {
+      if (!parts || !parts.scroll || !parts.frames.length) return { index: 0, ratio: 0 };
+      const scrollTop = parts.scroll.scrollTop;
+      let best = { index: 0, distance: Infinity, ratio: 0 };
+      parts.frames.forEach((frame, index) => {
+        const distance = Math.abs(frame.offsetTop - scrollTop);
+        if (distance < best.distance) {
+          const ratio = frame.offsetHeight > 0 ? (scrollTop - frame.offsetTop) / frame.offsetHeight : 0;
+          best = { index, distance, ratio: Math.max(0, Math.min(0.95, ratio)) };
+        }
+      });
+      return best;
+    }
+
+    function restorePageContext(parts, context) {
+      if (!parts || !parts.scroll || !parts.frames.length) return;
+      const frame = parts.frames[Math.min(context.index || 0, parts.frames.length - 1)];
+      if (!frame) return;
+      parts.scroll.scrollTop = Math.max(0, frame.offsetTop + (frame.offsetHeight * (context.ratio || 0)));
+    }
+
+    function firstReadyImage(parts) {
+      return parts.images.find(img => img.naturalWidth && img.naturalHeight) || parts.images[0];
+    }
+
+    function scaleForWidth(parts) {
+      const img = firstReadyImage(parts);
+      if (!img || !parts.scroll) return state.scale;
+      const dims = dimensionsFor(img, 1, state.rotation);
+      const available = Math.max(240, parts.scroll.clientWidth - MARGIN);
+      return clamp(available / dims.naturalLayoutWidth);
+    }
+
+    function scaleForHeight(parts) {
+      const img = firstReadyImage(parts);
+      if (!img || !parts.scroll) return state.scale;
+      const dims = dimensionsFor(img, 1, state.rotation);
+      const available = Math.max(240, parts.scroll.clientHeight - MARGIN);
+      return clamp(available / dims.naturalLayoutHeight);
+    }
+
+    function updateIndicators(parts) {
+      if (!parts) return;
+      if (parts.zoomIndicator) {
+        const label = state.mode === "width" ? "Fit Width" : state.mode === "height" ? "Fit Height" : `${Math.round(state.scale * 100)}%`;
+        parts.zoomIndicator.textContent = label;
+      }
+      if (parts.rotationIndicator) parts.rotationIndicator.textContent = `${state.rotation}°`;
+      if (parts.fitWidthButton) parts.fitWidthButton.classList.toggle("viewer-control-active", state.mode === "width");
+      if (parts.fitHeightButton) parts.fitHeightButton.classList.toggle("viewer-control-active", state.mode === "height");
+      updateCurrentPage(parts);
+    }
+
+    function applyViewerLayout(options = {}) {
+      const parts = viewer();
+      if (!parts || !parts.scroll || !parts.frames.length) return;
+      const context = options.preserve === false ? { index: 0, ratio: 0 } : currentPageContext(parts);
+
+      if (state.mode === "width") state.scale = scaleForWidth(parts);
+      if (state.mode === "height") state.scale = scaleForHeight(parts);
+      state.scale = clamp(state.scale);
+
+      parts.frames.forEach((frame, index) => {
+        const img = parts.images[index];
+        if (!img) return;
+        if (!img.naturalWidth || !img.naturalHeight) return;
+        const dims = dimensionsFor(img);
+        frame.style.width = `${Math.round(dims.layoutWidth)}px`;
+        frame.style.height = `${Math.round(dims.layoutHeight)}px`;
+        img.style.width = `${Math.round(dims.imageWidth)}px`;
+        img.style.height = `${Math.round(dims.imageHeight)}px`;
+        img.style.transform = `translate(-50%, -50%) rotate(${state.rotation}deg)`;
+      });
+
+      updateIndicators(parts);
+      if (options.preserve !== false) restorePageContext(parts, context);
+    }
+
+    function updateCurrentPage(parts = viewer()) {
+      if (!parts || !parts.scroll || !parts.frames.length || !parts.pageIndicator) return;
+      const midpoint = parts.scroll.scrollTop + (parts.scroll.clientHeight * 0.35);
+      let current = 0;
+      parts.frames.forEach((frame, index) => {
+        if (frame.offsetTop <= midpoint) current = index;
+      });
+      parts.pageIndicator.textContent = `Page ${current + 1} / ${parts.frames.length}`;
+    }
+
+    function fitWidth() {
+      state.mode = "width";
+      applyViewerLayout();
+    }
+
+    function fitHeight() {
+      state.mode = "height";
+      applyViewerLayout();
+    }
+
+    function zoomIn() {
+      state.mode = "custom";
+      state.scale = clamp(state.scale + STEP);
+      applyViewerLayout();
+    }
+
+    function zoomOut() {
+      state.mode = "custom";
+      state.scale = clamp(state.scale - STEP);
+      applyViewerLayout();
+    }
+
+    function rotate() {
+      state.rotation = (state.rotation + 90) % 360;
+      applyViewerLayout();
+    }
+
+    function resetViewer() {
+      state.rotation = 0;
+      state.mode = "width";
+      applyViewerLayout({ preserve: false });
+    }
+
+    function bindPdfViewer() {
+      const parts = viewer();
+      if (!parts || !parts.scroll) return;
+      document.getElementById("pdf-zoom-in")?.addEventListener("click", zoomIn);
+      document.getElementById("pdf-zoom-out")?.addEventListener("click", zoomOut);
+      document.getElementById("pdf-fit-width")?.addEventListener("click", fitWidth);
+      document.getElementById("pdf-fit-height")?.addEventListener("click", fitHeight);
+      document.getElementById("pdf-rotate")?.addEventListener("click", rotate);
+      document.getElementById("pdf-reset")?.addEventListener("click", resetViewer);
+      parts.scroll.addEventListener("scroll", () => updateCurrentPage(), { passive: true });
+      parts.images.forEach(img => {
+        if (img.complete && img.naturalWidth) {
+          applyViewerLayout({ preserve: false });
+        } else {
+          img.addEventListener("load", () => applyViewerLayout({ preserve: false }), { once: true });
+        }
+      });
+      window.addEventListener("resize", () => {
+        if (state.mode === "width" || state.mode === "height") applyViewerLayout();
+      });
+      applyViewerLayout({ preserve: false });
+    }
+
+    window.zoomIn = zoomIn;
+    window.zoomOut = zoomOut;
+    window.fitWidth = fitWidth;
+    window.fitHeight = fitHeight;
+    window.rotate = rotate;
+    window.fitToPage = resetViewer;
+    document.addEventListener("DOMContentLoaded", bindPdfViewer);
+  })();
   
   
   // === HEADER OFFSET WATCHER (for sticky header/toolbar/layout) ===

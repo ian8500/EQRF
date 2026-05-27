@@ -803,6 +803,56 @@ def test_extract_viewer_renders_breadcrumb_for_nested_category(client, isolated_
     assert b'Valid Extract' in response.data
 
 
+def test_extract_viewer_uses_professional_pdf_viewer_controls(client, isolated_content):
+    jpgs = isolated_content.publish_pdf('Viewer.pdf')
+    isolated_content.extracts.update({
+        'Tower': {
+            'GMC': {
+                '__files__': [{'pdf': 'Viewer.pdf', 'jpgs': jpgs, 'title': 'Viewer Extract'}],
+            },
+        },
+    })
+
+    response = client.get('/viewer/Tower/GMC/Viewer.pdf')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    for text in ['Fit Width', 'Fit Height', 'Rotate', 'Reset']:
+        assert text in html
+    assert 'pdf-viewer-shell' in html
+    assert 'pdf-toolbar' in html
+    assert 'pdf-scroll' in html
+    assert 'pdf-page-stack' in html
+    assert 'pdf-page-frame' in html
+    assert 'pdf-page-image extract-image' in html
+
+
+def test_extract_viewer_renders_all_page_images(client, isolated_content):
+    jpgs = isolated_content.publish_pdf('Multi.pdf', ['Multi_page1.jpg', 'Multi_page2.jpg'])
+    isolated_content.extracts.update({'Tower': {'__files__': [{'pdf': 'Multi.pdf', 'jpgs': jpgs, 'title': 'Multi'}]}})
+
+    response = client.get('/viewer/Tower/Multi.pdf')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert html.count('class="pdf-page-frame"') == 2
+    assert html.count('class="pdf-page-image extract-image"') == 2
+
+
+def test_pdf_viewer_script_handles_fit_modes_rotation_and_layout():
+    script = (app_module.BASE_DIR / 'static' / 'script.js').read_text(encoding='utf-8')
+
+    assert 'mode: "width"' in script
+    assert 'state.mode = "height"' in script
+    assert 'state.mode = "custom"' in script
+    assert 'state.rotation = (state.rotation + 90) % 360' in script
+    assert 'frame.style.width' in script
+    assert 'frame.style.height' in script
+    assert 'naturalLayoutWidth' in script
+    assert 'naturalLayoutHeight' in script
+    assert 'scale(${viewerZoom})' not in script
+
+
 def test_checklist_viewer_renders_breadcrumb_for_nested_category(client, isolated_content):
     isolated_content.checklists.update({
         'Tower': {
