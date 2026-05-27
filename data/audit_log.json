@@ -43,5 +43,68 @@
       "status": "published",
       "last_updated": "2026-05-27T21:43:52Z"
     }
+  },
+  {
+    "timestamp": "2026-05-27T21:54:57Z",
+    "user": "admin",
+    "action": "delete_extract",
+    "target_type": "extract",
+    "target_path": "AIR/SID/CLYDE.pdf",
+    "summary": "Deleted extract CLYDE.pdf from AIR/SID",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-05-27T21:55:39Z",
+    "user": "admin",
+    "action": "admin_logout",
+    "target_type": "auth",
+    "target_path": "admin",
+    "summary": "Admin logged out",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-05-27T21:55:48Z",
+    "user": "admin",
+    "action": "admin_login_success",
+    "target_type": "auth",
+    "target_path": "admin",
+    "summary": "Admin login successful",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-05-27T21:56:10Z",
+    "user": "admin",
+    "action": "trigger_refresh",
+    "target_type": "system",
+    "target_path": "clients",
+    "summary": "Triggered client refresh",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-05-27T21:57:57Z",
+    "user": "admin",
+    "action": "trigger_refresh",
+    "target_type": "system",
+    "target_path": "clients",
+    "summary": "Triggered client refresh",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-05-27T21:58:06Z",
+    "user": "admin",
+    "action": "trigger_refresh",
+    "target_type": "system",
+    "target_path": "clients",
+    "summary": "Triggered client refresh",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-05-27T21:58:16Z",
+    "user": "admin",
+    "action": "trigger_refresh",
+    "target_type": "system",
+    "target_path": "clients",
+    "summary": "Triggered client refresh",
+    "details": {}
   }
 ]
