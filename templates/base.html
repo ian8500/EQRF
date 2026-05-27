@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <!-- Main styles -->
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='atc-ops') }}">
 
   <!-- Night mode before paint (avoid white flash) -->
   <script>
@@ -32,7 +32,7 @@
   </script>
 
   <!-- Your site JS -->
-  <script defer src="{{ url_for('static', filename='script.js') }}"></script>
+  <script defer src="{{ url_for('static', filename='script.js', v='atc-ops') }}"></script>
 
   {% block head %}{% endblock %}
 </head>

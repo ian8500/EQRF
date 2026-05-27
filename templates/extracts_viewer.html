@@ -3,13 +3,19 @@
 {% block title %}{{ page_title }}{% endblock %}
 
 {% block content %}
-<h2 class="extract-title">{{ page_title }}</h2>
+<section class="page-shell">
+<div class="page-heading">
+  <div>
+    <p class="eyebrow">Document viewer</p>
+    <h2 class="extract-title">{{ page_title }}</h2>
+  </div>
+</div>
 
 <div id="toolbar" class="sticky-toolbar">
-  <button type="button" onclick="zoomOut()" title="Zoom out">➖</button>
-  <button type="button" onclick="zoomIn()" title="Zoom in">➕</button>
-  <button type="button" onclick="rotate()" title="Rotate">🔄</button>
-  <button type="button" onclick="fitToPage()" title="Fit to page">🖥️</button>
+  <button type="button" onclick="zoomOut()" title="Zoom out">Zoom -</button>
+  <button type="button" onclick="zoomIn()" title="Zoom in">Zoom +</button>
+  <button type="button" onclick="rotate()" title="Rotate document">Rotate</button>
+  <button type="button" onclick="fitToPage()" title="Reset view">Reset View</button>
 </div>
 
 <div class="toolbar-spacer"></div>
@@ -86,4 +92,5 @@
   window.addEventListener('load', setToolbarHeight, { passive: true });
   window.addEventListener('resize', setToolbarHeight);
 </script>
+</section>
 {% endblock %}

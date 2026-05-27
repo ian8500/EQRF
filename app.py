@@ -71,7 +71,9 @@ app.config.update(
 @app.after_request
 def add_caching_headers(resp):
     p = request.path or ''
-    if p.startswith('/static/') or p.startswith('/jpgs/'):
+    if p in {'/static/style.css', '/static/script.js'}:
+        resp.headers['Cache-Control'] = 'no-cache'
+    elif p.startswith('/static/') or p.startswith('/jpgs/'):
         resp.headers.setdefault('Cache-Control', 'public, max-age=31536000, immutable')
     return resp
 
@@ -213,7 +215,7 @@ def _category_paths(node: Any, prefix: str = '') -> List[str]:
 
     paths: List[str] = []
     for key, value in node.items():
-        if key == '__files__':
+        if key in {'__files__', '--'}:
             continue
         path = f'{prefix}/{key}' if prefix else key
         paths.append(path)

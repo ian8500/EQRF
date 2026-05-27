@@ -69,12 +69,10 @@ function saveChecklistState() {
   
   // === SERVER-SENT EVENTS (SSE) FOR REFRESH ===
   if (typeof EventSource !== "undefined") {
-    const evtSource = new EventSource("/events");
-    evtSource.onmessage = function (e) {
-      if (e.data === "refresh") {
-        window.location.reload();
-      }
-    };
+    const evtSource = new EventSource("/stream");
+    evtSource.addEventListener("refresh", () => {
+      window.location.reload();
+    });
   }
   
   

@@ -1,27 +1,36 @@
 {% extends "base.html" %}
-{% block title %}{{ category }}{% endblock %}
+{% block title %}{{ category }} Extracts{% endblock %}
 
 {% block content %}
-<h2>📁 {{ category }}</h2>
-<div class="extracts-category-buttons">
-    {# Subcategories (folders) FIRST: navigation buttons only #}
+<section class="page-shell">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Extract category</p>
+      <h2 class="page-title">{{ category.replace('/', ' / ') }}</h2>
+      <p class="page-copy">Select a subcategory or PDF extract.</p>
+    </div>
+  </div>
+
+  <div class="document-grid">
     {% if subcategories %}
-        {% for key in subcategories.keys() %}
-            <form action="{{ url_for('extracts_category', subpath=(category ~ '/' ~ key).lstrip('/')) }}" method="get" style="margin: 0;">
-                <button type="submit" class="extract-btn">📁 {{ key }}</button>
-            </form>
-        {% endfor %}
+      {% for key in subcategories.keys() %}
+        <a class="extract-card folder" href="{{ url_for('extracts_category', subpath=(category ~ '/' ~ key).lstrip('/')) }}">
+          <span class="tile-code">Category</span>
+          <strong>{{ key }}</strong>
+          <span class="tile-meta">Open document group</span>
+        </a>
+      {% endfor %}
     {% endif %}
 
-    {# PDF files at this level #}
     {% if items %}
-        {% for item in items %}
-            <form action="{{ url_for('extracts_viewer', category=category, filename=item.filename) }}" method="get" style="margin: 0;">
-                <button type="submit" class="extract-btn">
-                    📄 {{ item.label }}
-                </button>
-            </form>
-        {% endfor %}
+      {% for item in items %}
+        <a class="extract-card pdf" href="{{ url_for('extracts_viewer', category=category, filename=item.filename) }}">
+          <span class="tile-code">PDF extract</span>
+          <strong>{{ item.label }}</strong>
+          <span class="tile-meta">Open rendered document</span>
+        </a>
+      {% endfor %}
     {% endif %}
-</div>
+  </div>
+</section>
 {% endblock %}

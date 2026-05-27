@@ -10,17 +10,17 @@ def client():
         yield test_client
 
 
-def test_home_loads(client):
+def test_home_page_loads(client):
     response = client.get('/')
     assert response.status_code == 200
 
 
-def test_checklists_loads(client):
+def test_checklists_page_loads(client):
     response = client.get('/checklists')
     assert response.status_code == 200
 
 
-def test_extracts_loads(client):
+def test_extracts_page_loads(client):
     response = client.get('/extracts')
     assert response.status_code == 200
 
@@ -30,7 +30,13 @@ def test_login_page_loads(client):
     assert response.status_code == 200
 
 
-def test_static_jpg_route_for_known_file(client):
+def test_admin_redirects_to_login_when_logged_out(client):
+    response = client.get('/admin')
+    assert response.status_code == 302
+    assert '/login' in response.headers['Location']
+
+
+def test_known_static_jpg_route_works_if_available(client):
     jpgs = sorted(JPG_DIR.glob('*.jpg'))
     if not jpgs:
         pytest.skip('No JPG assets available.')

@@ -2,27 +2,28 @@
 {% block title %}Admin Login{% endblock %}
 
 {% block content %}
-<h2>Admin Login</h2>
+<section class="page-shell login-panel">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Protected console</p>
+      <h2 class="page-title">Login</h2>
+      <p class="page-copy">Authenticate to access local administration controls.</p>
+    </div>
+  </div>
 
-<!-- Flash messages -->
-{% with messages = get_flashed_messages(with_categories=true) %}
-  {% if messages %}
-    <ul class="flashes">
-    {% for category, message in messages %}
-      <li class="{{ category }}">{{ message }}</li>
-    {% endfor %}
-    </ul>
-  {% endif %}
-{% endwith %}
-
-<form method="post">
-    <input type="hidden" name="next" value="{{ next }}">
-    <label>Username (optional):
-        <input type="text" name="username" autocomplete="username">
-    </label><br><br>
-    <label>Password:
-        <input type="password" name="password" required>
-    </label><br><br>
-    <button type="submit">Login</button>
-</form>
+  <section class="card">
+    <form class="form-stack" method="post">
+      <input type="hidden" name="next" value="{{ next }}">
+      <label>
+        Username
+        <input type="text" name="username" autocomplete="username" placeholder="Optional">
+      </label>
+      <label>
+        Password
+        <input type="password" name="password" required autocomplete="current-password">
+      </label>
+      <button type="submit" class="btn success">Login</button>
+    </form>
+  </section>
+</section>
 {% endblock %}

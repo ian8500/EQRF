@@ -323,6 +323,7 @@ h3 {
 .nav-button,
 .extract-btn,
 .btn,
+.sticky-toolbar button,
 button[type="submit"] {
   display: inline-flex;
   align-items: center;
@@ -346,6 +347,7 @@ button[type="submit"] {
 .nav-button:hover,
 .extract-btn:hover,
 .btn:hover,
+.sticky-toolbar button:hover,
 button[type="submit"]:hover {
   border-color: var(--cyan);
   color: #ffffff;
@@ -437,6 +439,8 @@ button[type="submit"]:hover {
   border: 1px solid rgba(124, 216, 255, 0.18);
   border-radius: var(--radius);
   background: rgba(10, 26, 42, 0.88);
+  font-family: var(--font);
+  text-transform: none;
 }
 
 .checklist-row label:hover {
