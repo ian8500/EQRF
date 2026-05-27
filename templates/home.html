@@ -1,25 +1,58 @@
 {% extends "base.html" %}
-{% block title %}Home{% endblock %}
+{% block title %}Glasgow E-QRF Operations{% endblock %}
 
 {% block content %}
-<h2>Welcome to the Glasgow E-QRF</h2>
-<div class="button-group">
-    <a class="nav-button" href="{{ url_for('checklist_index') }}">📝 Checklists</a>
-    <a class="nav-button" href="{{ url_for('extracts_index') }}">📄 Extracts</a>
-</div>
+<section class="page-shell">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Operations console</p>
+      <h2 class="page-title">Glasgow E-QRF</h2>
+      <p class="page-copy">Fast access to live-reference checklists and local PDF extracts for tower and radar operations.</p>
+    </div>
+  </div>
 
-{% if home_pdfs %}
-<hr>
-<h3>Quick Reference</h3>
-<div class="button-group">
-    {% for pdf in home_pdfs %}
+  <div class="ops-grid">
+    <a class="ops-card" href="{{ url_for('checklist_index') }}">
+      <span class="tile-code">Command 01</span>
+      <strong>Checklists</strong>
+      <span class="tile-desc">Touch-ready operational flows, runway changes, setup actions, and unit procedures.</span>
+    </a>
+
+    <a class="ops-card" href="{{ url_for('extracts_index') }}">
+      <span class="tile-code">Command 02</span>
+      <strong>Extracts</strong>
+      <span class="tile-desc">Local PDF plates and reference documents rendered for quick viewing.</span>
+    </a>
+
+    {% if session.get('logged_in') %}
+      <a class="ops-card" href="{{ url_for('admin_panel') }}">
+        <span class="tile-code">Command 03</span>
+        <strong>Admin</strong>
+        <span class="tile-desc">Register extracts, manage categories, and trigger local display refresh.</span>
+      </a>
+    {% endif %}
+  </div>
+
+  {% if home_pdfs %}
+  <section class="ops-panel">
+    <div class="panel-heading">
+      <div>
+        <p class="eyebrow">Pinned reference</p>
+        <h3>Quick Reference</h3>
+      </div>
+    </div>
+    <div class="quick-ref-grid">
+      {% for pdf in home_pdfs %}
         {% set filename = file_entry_name(pdf) %}
         {% if filename %}
-        <a class="nav-button" href="{{ url_for('extracts_viewer', category='--', filename=filename) }}">
-            📘 {{ filename[:-4] if filename.lower().endswith('.pdf') else filename }}
+        <a class="ops-card quick-ref-card" href="{{ url_for('extracts_viewer', category='--', filename=filename) }}">
+          <span class="tile-code">PDF extract</span>
+          <strong>{{ filename[:-4] if filename.lower().endswith('.pdf') else filename }}</strong>
         </a>
         {% endif %}
-    {% endfor %}
-</div>
-{% endif %}
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+</section>
 {% endblock %}

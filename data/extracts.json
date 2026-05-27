@@ -481,7 +481,18 @@
           ],
           "orientation": "landscape"
         }
-      ]
+      ],
+      "TEST": {
+        "__files__": [
+          {
+            "pdf": "479621.pdf",
+            "jpgs": [
+              "479621_page1.jpg"
+            ],
+            "orientation": "portrait"
+          }
+        ]
+      }
     },
     "__files__": [
       {

@@ -1,23 +1,34 @@
 {% extends "base.html" %}
-{% block title %}Extracts{% endblock %}
+{% block title %}Extract Library{% endblock %}
 
 {% block content %}
-<h1>📚 Extracts</h1>
-<div class="extracts-category-buttons">
-    {# List all top-level categories (folders) #}
-    {% for category in categories %}
-        <form action="{{ url_for('extracts_category', subpath=category) }}" method="get" style="margin: 0;">
-            <button type="submit" class="extract-btn">{{ category }}</button>
-        </form>
+<section class="page-shell">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Document library</p>
+      <h2 class="page-title">Extracts</h2>
+      <p class="page-copy">Local operational PDFs and rendered JPG extracts grouped by category.</p>
+    </div>
+  </div>
+
+  <div class="document-grid">
+    {% for category, value in categories.items() %}
+      <a class="extract-card folder" href="{{ url_for('extracts_category', subpath=category) }}">
+        <span class="tile-code">Category</span>
+        <strong>{{ category }}</strong>
+        <span class="tile-meta">Open document group</span>
+      </a>
     {% endfor %}
 
-    {# If you want to show PDFs at root level (rare, but your logic allows) #}
     {% if root_files %}
-        {% for pdf in root_files %}
-            <form action="{{ url_for('extracts_viewer', category='', filename=pdf) }}" method="get" style="margin: 0;">
-                <button type="submit" class="extract-btn">{{ pdf[:-4] if pdf.lower().endswith('.pdf') else pdf }}</button>
-            </form>
-        {% endfor %}
+      {% for pdf in root_files %}
+        <a class="extract-card pdf" href="{{ url_for('extracts_viewer', category='--', filename=pdf) }}">
+          <span class="tile-code">PDF extract</span>
+          <strong>{{ pdf[:-4] if pdf.lower().endswith('.pdf') else pdf }}</strong>
+          <span class="tile-meta">Open rendered document</span>
+        </a>
+      {% endfor %}
     {% endif %}
-</div>
+  </div>
+</section>
 {% endblock %}

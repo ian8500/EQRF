@@ -1,16 +1,24 @@
 {% extends "base.html" %}
-{% block title %}Checklists{% endblock %}
+{% block title %}Operational Checklists{% endblock %}
+
 {% block content %}
-<h2>Select a Category</h2>
-<div class="button-group">
-  {% for name, value in categories.items() %}
-    {% if value is mapping %}
-      <!-- Folder -->
-      <a class="nav-button" href="{{ url_for('checklist_category', category=name) }}">📁 {{ name }}</a>
-    {% elif value is sequence %}
-      <!-- Actual checklist -->
-      <a class="nav-button" href="{{ url_for('checklist_category', category=name) }}">✏️ {{ name }}</a>
-    {% endif %}
-  {% endfor %}
-</div>
+<section class="page-shell">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Checklist library</p>
+      <h2 class="page-title">Operational Checklists</h2>
+      <p class="page-copy">Select a control position, aircraft type, or operations group.</p>
+    </div>
+  </div>
+
+  <div class="button-group">
+    {% for name, value in categories.items() %}
+      <a class="command-card" href="{{ url_for('checklist_category', category=name) }}">
+        <span class="tile-code">{{ 'Folder' if value is mapping else 'Checklist' }}</span>
+        <strong>{{ name }}</strong>
+        <span class="tile-meta">{{ 'Open nested checklist group' if value is mapping else 'Open operational checklist' }}</span>
+      </a>
+    {% endfor %}
+  </div>
+</section>
 {% endblock %}
