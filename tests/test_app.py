@@ -6,7 +6,12 @@ import pytest
 import app as app_module
 from app import (
     JPG_DIR,
+    AUDIT_LOG_JSON,
+    append_audit_log,
     app,
+    checklist_items,
+    checklist_metadata,
+    content_is_expired,
     count_checklist_items,
     delete_checklist,
     file_entry_jpgs,
@@ -18,15 +23,21 @@ from app import (
     filtered_checklist_tree,
     filtered_extract_tree,
     flatten_valid_extract_files,
+    get_audit_log,
+    metadata_status_label,
+    normalise_file_entry,
     normalise_category_path,
     safe_path_parts,
     upsert_checklist,
+    upsert_checklist_with_metadata,
     upsert_pdf_entry,
+    validate_content_metadata,
 )
 
 
 @pytest.fixture()
-def client():
+def client(monkeypatch, tmp_path):
+    monkeypatch.setattr(app_module, 'AUDIT_LOG_JSON', tmp_path / 'audit_log.json')
     app.config.update(TESTING=True)
     with app.test_client() as test_client:
         yield test_client
@@ -120,6 +131,57 @@ def test_admin_link_appears_after_admin_login(client, monkeypatch):
     assert b'>Admin<' in response.data
 
 
+def test_audit_log_file_created_and_append_records_entry(tmp_path, monkeypatch):
+    audit_path = tmp_path / 'audit_log.json'
+    monkeypatch.setattr(app_module, 'AUDIT_LOG_JSON', audit_path)
+
+    assert get_audit_log() == []
+    assert audit_path.exists()
+
+    append_audit_log('unit_test', 'test', 'target', 'Unit test audit entry', {'version': '1.0'})
+    entries = get_audit_log()
+
+    assert len(entries) == 1
+    assert entries[0]['action'] == 'unit_test'
+    assert entries[0]['details']['version'] == '1.0'
+
+
+def test_admin_audit_requires_login_and_displays_entries(client, monkeypatch):
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+
+    logged_out = client.get('/admin/audit')
+    assert logged_out.status_code == 302
+    assert '/login' in logged_out.headers['Location']
+
+    client.post('/login', data={'password': 'test-pass', 'next': '/admin/audit'})
+    append_audit_log('unit_test', 'test', 'target', 'Visible audit entry')
+    response = client.get('/admin/audit')
+
+    assert response.status_code == 200
+    assert b'Audit Log' in response.data
+    assert b'Visible audit entry' in response.data
+
+
+def test_admin_dashboard_shows_audit_log_link_and_governance_summary(client, monkeypatch):
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+    client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
+
+    response = client.get('/admin')
+
+    assert response.status_code == 200
+    assert b'Audit Log' in response.data
+    assert b'Extracts published' in response.data
+    assert b'Checklists published' in response.data
+
+
+def test_admin_edit_pages_require_login(client):
+    extract_response = client.get('/admin/extracts/edit?category=AIR&filename=MATS1.pdf')
+    checklist_response = client.get('/admin/checklists/edit?path=AIR/Test')
+
+    assert extract_response.status_code == 302
+    assert checklist_response.status_code == 302
+
+
 def test_known_static_jpg_route_works_if_available(client):
     jpgs = sorted(JPG_DIR.glob('*.jpg'))
     if not jpgs:
@@ -154,10 +216,52 @@ def test_nested_category_creation():
 def test_file_entry_helpers_support_string_and_dict_entries():
     assert file_entry_name('MATS1.pdf') == 'MATS1.pdf'
     assert file_entry_jpgs('MATS1.pdf') == []
+    assert normalise_file_entry('MATS1.pdf')['version'] == 'N/A'
+    assert normalise_file_entry('MATS1.pdf')['status'] == 'published'
 
-    entry = {'pdf': 'MATS2.pdf', 'jpgs': ['MATS2_page1.jpg'], 'orientation': 'landscape'}
+    entry = {
+        'pdf': 'MATS2.pdf',
+        'jpgs': ['MATS2_page1.jpg'],
+        'orientation': 'landscape',
+        'version': '2.1',
+        'effective_date': '2026-05-27',
+        'expiry_date': 'N/A',
+        'review_date': '2026-06-27',
+    }
     assert file_entry_name(entry) == 'MATS2.pdf'
     assert file_entry_jpgs(entry) == ['MATS2_page1.jpg']
+    assert normalise_file_entry(entry)['version'] == '2.1'
+    assert normalise_file_entry(entry)['review_date'] == '2026-06-27'
+
+
+def test_blank_metadata_fields_normalise_to_na_and_invalid_dates_reject():
+    metadata = validate_content_metadata({
+        'title': '',
+        'version': '',
+        'effective_date': '',
+        'expiry_date': '',
+        'review_date': 'N/A',
+        'owner': '',
+        'status': 'published',
+    })
+
+    assert metadata['version'] == 'N/A'
+    assert metadata['effective_date'] == 'N/A'
+    assert metadata['owner'] == 'N/A'
+
+    with pytest.raises(ValueError):
+        validate_content_metadata({'effective_date': '27/05/2026'})
+
+
+def test_expired_extract_gets_status_label():
+    entry = normalise_file_entry({
+        'pdf': 'Expired.pdf',
+        'expiry_date': '2020-01-01',
+        'status': 'published',
+    })
+
+    assert content_is_expired(entry)
+    assert metadata_status_label(entry) == 'Expired'
 
 
 def test_duplicate_pdf_detection_supports_mixed_entries():
@@ -190,6 +294,46 @@ def test_checklist_helper_rejects_empty_checklist():
         upsert_checklist({}, 'A380/Runway 05', ['', '   '])
 
 
+def test_checklist_metadata_helpers_convert_and_preserve_lines():
+    checklists = {}
+
+    upsert_checklist_with_metadata(
+        checklists,
+        'A380/Runway 05',
+        ['--- Arrival ---', 'Check item'],
+        {
+            'title': 'Runway 05',
+            'version': '1.2',
+            'effective_date': '2026-05-27',
+            'expiry_date': 'N/A',
+            'review_date': '2026-08-01',
+            'owner': 'Ops',
+            'status': 'published',
+            'last_updated': '2026-05-27T12:00:00Z',
+        },
+    )
+
+    node = checklists['A380']['Runway 05']
+    assert node['__type__'] == 'checklist'
+    assert checklist_items(node) == ['--- Arrival ---', 'Check item']
+    assert checklist_metadata(node)['version'] == '1.2'
+    assert count_checklist_items(checklists) == 2
+
+
+def test_draft_checklist_hidden_from_public_pages(client, isolated_content):
+    upsert_checklist_with_metadata(
+        isolated_content.checklists,
+        'Tower/Draft',
+        ['Draft item'],
+        {'title': 'Draft', 'status': 'draft'},
+    )
+
+    response = client.get('/checklists')
+
+    assert response.status_code == 200
+    assert b'Draft' not in response.data
+
+
 def test_extract_health_helpers_detect_missing_assets_and_orphans(tmp_path):
     extracts = {
         'AIR': {
@@ -218,7 +362,8 @@ def test_empty_checklist_folders_are_not_shown(client, isolated_content):
     assert response.status_code == 200
     assert b'Tower' in response.data
     assert b'Empty' not in response.data
-    assert filtered_checklist_tree(isolated_content.checklists) == {'Tower': {'Runway 05': ['Line up']}}
+    filtered = filtered_checklist_tree(isolated_content.checklists)
+    assert checklist_items(filtered['Tower']['Runway 05']) == ['Line up']
 
 
 def test_home_hides_checklists_card_when_no_valid_checklists(client, isolated_content):
@@ -298,12 +443,31 @@ def test_valid_string_and_dict_extract_entries_show(client, isolated_content):
         },
     })
 
-    response = client.get('/extracts/AIR')
+    response = client.get('/extracts/AIR', follow_redirects=True)
 
     assert response.status_code == 200
     assert b'ValidString' in response.data
     assert b'Valid Dict' in response.data
     assert len(flatten_valid_extract_files(isolated_content.extracts)) == 2
+
+
+def test_draft_extract_hidden_and_published_extract_visible(client, isolated_content):
+    jpgs = isolated_content.publish_pdf('Governed.pdf')
+    isolated_content.publish_pdf('Draft.pdf')
+    isolated_content.extracts.update({
+        'AIR': {
+            '__files__': [
+                {'pdf': 'Governed.pdf', 'jpgs': jpgs, 'title': 'Governed', 'status': 'published'},
+                {'pdf': 'Draft.pdf', 'jpgs': ['Draft_page1.jpg'], 'title': 'Draft Extract', 'status': 'draft'},
+            ],
+        },
+    })
+
+    response = client.get('/extracts/AIR', follow_redirects=True)
+
+    assert response.status_code == 200
+    assert b'Governed' in response.data
+    assert b'Draft Extract' not in response.data
 
 
 def test_home_hides_extracts_card_when_no_valid_extracts(client, isolated_content):

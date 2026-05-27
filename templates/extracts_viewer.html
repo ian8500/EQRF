@@ -7,6 +7,17 @@
 <div class="page-heading">
   <div>
     <h2 class="extract-title">{{ page_title }}</h2>
+    {% if item.metadata %}
+      <div class="metadata-row public-metadata">
+        <span>Version {{ item.metadata.version }}</span>
+        <span>Effective {{ item.metadata.effective_date }}</span>
+        <span>Review {{ item.metadata.review_date }}</span>
+        <span>Expiry {{ item.metadata.expiry_date }}</span>
+        {% if item.status_label != 'Published' %}
+          <span class="status-chip {{ item.status_state }}">{{ item.status_label }}</span>
+        {% endif %}
+      </div>
+    {% endif %}
   </div>
 </div>
 

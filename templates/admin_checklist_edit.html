@@ -21,6 +21,41 @@
           <input id="path" name="path" type="text" value="{{ path }}" placeholder="Example: A380/Runway 05" required>
         </label>
 
+        <div class="form-grid">
+          <label for="title">
+            Checklist title
+            <input id="title" name="title" type="text" value="{{ metadata.title if metadata else '' }}">
+          </label>
+          <label for="version">
+            Version
+            <input id="version" name="version" type="text" value="{{ metadata.version if metadata else 'N/A' }}">
+          </label>
+          <label for="effective_date">
+            Effective date
+            <input id="effective_date" name="effective_date" type="text" value="{{ metadata.effective_date if metadata else 'N/A' }}">
+          </label>
+          <label for="expiry_date">
+            Expiry date
+            <input id="expiry_date" name="expiry_date" type="text" value="{{ metadata.expiry_date if metadata else 'N/A' }}">
+          </label>
+          <label for="review_date">
+            Review date
+            <input id="review_date" name="review_date" type="text" value="{{ metadata.review_date if metadata else 'N/A' }}">
+          </label>
+          <label for="owner">
+            Owner
+            <input id="owner" name="owner" type="text" value="{{ metadata.owner if metadata else 'N/A' }}">
+          </label>
+          <label for="status">
+            Status
+            <select id="status" name="status">
+              {% for status in statuses %}
+                <option value="{{ status }}" {% if metadata and status == metadata.status %}selected{% endif %}>{{ status }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+
         <label for="lines">
           Checklist lines
           <textarea id="lines" name="lines" rows="18" required>{{ text }}</textarea>
@@ -95,7 +130,8 @@ document.addEventListener('DOMContentLoaded', function () {
         item.className = 'preview-section';
         item.textContent = line.replace(/-/g, '').trim();
       } else {
-        item.className = line.includes('CAT A ONLY') ? 'preview-row preview-cat-a' : 'preview-row';
+        const upperLine = line.toUpperCase();
+        item.className = (upperLine.includes('CAT A ONLY') || upperLine.includes('CAT A MIN')) ? 'preview-row preview-cat-a' : 'preview-row';
         item.textContent = line;
       }
       previewList.appendChild(item);

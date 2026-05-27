@@ -3,7 +3,7 @@ import json
 import tempfile
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache, wraps
 from pathlib import Path
 from threading import Event, Lock
@@ -96,6 +96,7 @@ refresh_event = Event()
 # ---------------------- Helpers: JSON ---------------------- #
 EXTRACTS_JSON = DATA_DIR / 'extracts.json'
 CHECKLISTS_JSON = DATA_DIR / 'checklists.json'
+AUDIT_LOG_JSON = DATA_DIR / 'audit_log.json'
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -138,6 +139,175 @@ def save_extracts(extracts: Dict[str, Any]) -> None:
 def save_checklists(data: Dict[str, Any]) -> None:
     _write_json(CHECKLISTS_JSON, data)
     get_checklists.cache_clear()
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+
+
+def get_audit_log() -> List[Dict[str, Any]]:
+    if not AUDIT_LOG_JSON.exists():
+        save_audit_log([])
+    entries = _read_json(AUDIT_LOG_JSON, [])
+    if not isinstance(entries, list):
+        return []
+    return entries
+
+
+def save_audit_log(entries: List[Dict[str, Any]]) -> None:
+    _write_json(AUDIT_LOG_JSON, entries)
+
+
+def _current_audit_user() -> str:
+    try:
+        return 'admin' if session.get('is_admin') else 'system'
+    except RuntimeError:
+        return 'system'
+
+
+def append_audit_log(
+    action: str,
+    target_type: str,
+    target_path: str,
+    summary: str,
+    details: Optional[Dict[str, Any]] = None,
+) -> None:
+    entries = get_audit_log()
+    entries.append({
+        'timestamp': _utc_timestamp(),
+        'user': _current_audit_user(),
+        'action': action,
+        'target_type': target_type,
+        'target_path': target_path,
+        'summary': summary,
+        'details': details or {},
+    })
+    save_audit_log(entries)
+
+
+def latest_audit_entries(limit: Optional[int] = 50) -> List[Dict[str, Any]]:
+    entries = list(reversed(get_audit_log()))
+    if limit is None:
+        return entries
+    return entries[:limit]
+
+
+CONTENT_STATUSES = {'published', 'draft', 'hidden', 'archived'}
+
+
+def is_na(value: Any) -> bool:
+    return str(value or '').strip().upper() in {'', 'N/A', 'NA'}
+
+
+def _normalise_na(value: Any) -> str:
+    text = str(value or '').strip()
+    return 'N/A' if is_na(text) else text
+
+
+def default_content_metadata(title: Optional[str] = None) -> Dict[str, str]:
+    return {
+        'title': _normalise_na(title) if title else 'N/A',
+        'version': 'N/A',
+        'effective_date': 'N/A',
+        'expiry_date': 'N/A',
+        'review_date': 'N/A',
+        'owner': 'N/A',
+        'status': 'published',
+        'last_updated': 'N/A',
+    }
+
+
+def normalise_content_metadata(metadata: Optional[Dict[str, Any]], title: Optional[str] = None) -> Dict[str, str]:
+    data = default_content_metadata(title)
+    if isinstance(metadata, dict):
+        data.update({key: metadata.get(key) for key in data.keys() if key in metadata})
+    for key in {'title', 'version', 'effective_date', 'expiry_date', 'review_date', 'owner', 'last_updated'}:
+        data[key] = _normalise_na(data.get(key))
+    status = str(data.get('status') or 'published').strip().lower()
+    data['status'] = status if status in CONTENT_STATUSES else 'published'
+    return data
+
+
+def parse_optional_date(value: Any) -> Optional[date]:
+    if is_na(value):
+        return None
+    text = str(value).strip()
+    try:
+        return date.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError(f'Invalid date: {text}. Use YYYY-MM-DD or N/A.') from exc
+
+
+def validate_content_metadata(metadata: Dict[str, Any]) -> Dict[str, str]:
+    data = normalise_content_metadata(metadata, metadata.get('title') if isinstance(metadata, dict) else None)
+    for key in {'effective_date', 'expiry_date', 'review_date'}:
+        parse_optional_date(data.get(key))
+    if data['status'] not in CONTENT_STATUSES:
+        raise ValueError('Invalid status.')
+    return data
+
+
+def content_is_published(metadata: Dict[str, Any]) -> bool:
+    return normalise_content_metadata(metadata).get('status') == 'published'
+
+
+def content_is_effective(metadata: Dict[str, Any], today: Optional[date] = None) -> bool:
+    effective = parse_optional_date(normalise_content_metadata(metadata).get('effective_date'))
+    return effective is None or effective <= (today or date.today())
+
+
+def content_is_expired(metadata: Dict[str, Any], today: Optional[date] = None) -> bool:
+    expiry = parse_optional_date(normalise_content_metadata(metadata).get('expiry_date'))
+    return bool(expiry and expiry < (today or date.today()))
+
+
+def content_review_due(metadata: Dict[str, Any], today: Optional[date] = None) -> bool:
+    review = parse_optional_date(normalise_content_metadata(metadata).get('review_date'))
+    return bool(review and review <= (today or date.today()))
+
+
+def metadata_is_public(metadata: Dict[str, Any], today: Optional[date] = None) -> bool:
+    try:
+        return content_is_published(metadata) and content_is_effective(metadata, today)
+    except ValueError:
+        return False
+
+
+def metadata_status_label(metadata: Dict[str, Any]) -> str:
+    data = normalise_content_metadata(metadata)
+    status = data.get('status', 'published')
+    if status != 'published':
+        return status.title()
+    try:
+        if not content_is_effective(data):
+            return 'Not yet effective'
+        if content_is_expired(data):
+            return 'Expired'
+        if content_review_due(data):
+            return 'Review due'
+    except ValueError:
+        return 'Invalid metadata'
+    return 'Published'
+
+
+def metadata_status_state(metadata: Dict[str, Any]) -> str:
+    return metadata_status_label(metadata).lower().replace(' ', '-')
+
+
+def metadata_from_form(default_title: Optional[str] = None, *, touch: bool = True) -> Dict[str, str]:
+    data = validate_content_metadata({
+        'title': request.form.get('title') or default_title or 'N/A',
+        'version': request.form.get('version') or 'N/A',
+        'effective_date': request.form.get('effective_date') or 'N/A',
+        'expiry_date': request.form.get('expiry_date') or 'N/A',
+        'review_date': request.form.get('review_date') or 'N/A',
+        'owner': request.form.get('owner') or 'N/A',
+        'status': request.form.get('status') or 'published',
+        'last_updated': request.form.get('last_updated') or 'N/A',
+    })
+    if touch:
+        data['last_updated'] = _utc_timestamp()
+    return data
 
 # ---------------------- Helpers: category tree ---------------------- #
 
@@ -209,10 +379,18 @@ def normalise_file_entry(entry: Any) -> Dict[str, Any]:
         if not isinstance(item.get('jpgs'), list):
             item['jpgs'] = []
         item.setdefault('orientation', 'portrait')
+        metadata = normalise_content_metadata(item, item.get('title') or Path(item['pdf']).stem or None)
+        item.update(metadata)
         return item
     if isinstance(entry, str):
-        return {'pdf': entry, 'jpgs': [], 'orientation': 'portrait'}
-    return {'pdf': '', 'jpgs': [], 'orientation': 'portrait'}
+        filename = entry
+        return {
+            'pdf': filename,
+            'jpgs': [],
+            'orientation': 'portrait',
+            **normalise_content_metadata({}, Path(filename).stem or None),
+        }
+    return {'pdf': '', 'jpgs': [], 'orientation': 'portrait', **normalise_content_metadata({})}
 
 
 def file_entry_name(entry: Any) -> str:
@@ -247,8 +425,48 @@ def _find_file_entry(node: Any, filename: str) -> Optional[Any]:
     return None
 
 
+def is_checklist_leaf(node: Any) -> bool:
+    return isinstance(node, list) or (
+        isinstance(node, dict)
+        and node.get('__type__') == 'checklist'
+        and isinstance(node.get('items'), list)
+    )
+
+
+def normalise_checklist_node(node: Any, title: Optional[str] = None) -> Dict[str, Any]:
+    if isinstance(node, dict) and node.get('__type__') == 'checklist':
+        items = node.get('items') if isinstance(node.get('items'), list) else []
+        metadata = normalise_content_metadata(node.get('metadata'), title or node.get('metadata', {}).get('title'))
+        return {'__type__': 'checklist', 'metadata': metadata, 'items': items}
+    if isinstance(node, list):
+        return {
+            '__type__': 'checklist',
+            'metadata': normalise_content_metadata({}, title),
+            'items': node,
+        }
+    return {
+        '__type__': 'checklist',
+        'metadata': normalise_content_metadata({}, title),
+        'items': [],
+    }
+
+
+def checklist_items(node: Any) -> List[str]:
+    if isinstance(node, list):
+        return [str(line).strip() for line in node if str(line).strip()]
+    if isinstance(node, dict) and node.get('__type__') == 'checklist':
+        return [str(line).strip() for line in node.get('items', []) if str(line).strip()]
+    return []
+
+
+def checklist_metadata(node: Any, title: Optional[str] = None) -> Dict[str, str]:
+    return normalise_checklist_node(node, title).get('metadata', normalise_content_metadata({}, title))
+
+
 def is_valid_checklist_node(node: Any) -> bool:
-    return isinstance(node, list) and any(str(line).strip() for line in node)
+    if not is_checklist_leaf(node):
+        return False
+    return bool(checklist_items(node) and metadata_is_public(checklist_metadata(node)))
 
 
 def checklist_group_has_content(node: Any) -> bool:
@@ -261,10 +479,14 @@ def checklist_group_has_content(node: Any) -> bool:
 
 def filtered_checklist_tree(node: Any) -> Any:
     if is_valid_checklist_node(node):
-        return [str(line).strip() for line in node if str(line).strip()]
+        normalised = normalise_checklist_node(node)
+        normalised['items'] = checklist_items(node)
+        return normalised
     if isinstance(node, dict):
         filtered: Dict[str, Any] = {}
         for key, value in node.items():
+            if key in {'__type__', 'metadata', 'items'}:
+                continue
             child = filtered_checklist_tree(value)
             if checklist_group_has_content(child):
                 filtered[key] = child
@@ -330,7 +552,13 @@ def flatten_extract_files(extracts: Any) -> List[Dict[str, Any]]:
 
 def extract_entry_is_valid(entry: Any) -> bool:
     filename = file_entry_name(entry)
-    return bool(filename and local_pdf_exists(filename) and get_valid_jpgs_for_pdf(filename, file_entry_jpgs(entry)))
+    metadata = normalise_file_entry(entry)
+    return bool(
+        filename
+        and metadata_is_public(metadata)
+        and local_pdf_exists(filename)
+        and get_valid_jpgs_for_pdf(filename, file_entry_jpgs(entry))
+    )
 
 
 def extract_group_has_content(node: Any) -> bool:
@@ -423,14 +651,20 @@ def flatten_checklist_paths(checklists: Any) -> List[Dict[str, Any]]:
 
     def visit(node: Any, path: str) -> None:
         if is_valid_checklist_node(node):
-            cleaned = [str(line).strip() for line in node if str(line).strip()]
+            cleaned = checklist_items(node)
+            metadata = checklist_metadata(node, Path(path).name if path else None)
             paths.append({
                 'path': path,
                 'items': cleaned,
                 'item_count': len(cleaned),
+                'metadata': metadata,
+                'status_label': metadata_status_label(metadata),
+                'status_state': metadata_status_state(metadata),
             })
         elif isinstance(node, dict):
             for key, value in node.items():
+                if key in {'__type__', 'metadata', 'items'}:
+                    continue
                 visit(value, f'{path}/{key}' if path else key)
 
     visit(checklists, '')
@@ -446,18 +680,32 @@ def _flatten_all_checklist_paths(checklists: Any) -> List[Dict[str, Any]]:
     paths: List[Dict[str, Any]] = []
 
     def visit(node: Any, path: str) -> None:
-        if isinstance(node, list):
-            item_count = len([line for line in node if str(line).strip()])
+        if is_checklist_leaf(node):
+            metadata = checklist_metadata(node, Path(path).name if path else None)
+            item_count = len(checklist_items(node))
+            public_visible = item_count > 0 and metadata_is_public(metadata)
+            if public_visible:
+                visibility_label = metadata_status_label(metadata)
+                visibility_state = metadata_status_state(metadata)
+            elif item_count == 0:
+                visibility_label = 'Hidden: empty checklist'
+                visibility_state = 'hidden'
+            else:
+                visibility_label = f'Hidden: {metadata_status_label(metadata)}'
+                visibility_state = metadata_status_state(metadata)
             paths.append({
                 'path': path,
-                'items': node,
+                'items': checklist_items(node),
                 'item_count': item_count,
-                'public_visible': item_count > 0,
-                'visibility_label': 'Published' if item_count > 0 else 'Hidden: empty checklist',
-                'visibility_state': 'published' if item_count > 0 else 'hidden',
+                'metadata': metadata,
+                'public_visible': public_visible,
+                'visibility_label': visibility_label,
+                'visibility_state': visibility_state,
             })
         elif isinstance(node, dict):
             for key, value in node.items():
+                if key in {'__type__', 'metadata', 'items'}:
+                    continue
                 visit(value, f'{path}/{key}' if path else key)
 
     visit(checklists, '')
@@ -473,10 +721,10 @@ def _count_checklist_categories(checklists: Any) -> int:
 
     def visit(node: Any) -> None:
         nonlocal count
-        if not isinstance(node, dict):
+        if not isinstance(node, dict) or is_checklist_leaf(node):
             return
         for value in node.values():
-            if isinstance(value, dict):
+            if isinstance(value, dict) and not is_checklist_leaf(value):
                 count += 1
                 visit(value)
 
@@ -488,10 +736,12 @@ def _find_invalid_checklist_structures(checklists: Any) -> List[Dict[str, str]]:
     invalid: List[Dict[str, str]] = []
 
     def visit(node: Any, path: str) -> None:
-        if isinstance(node, list):
+        if is_checklist_leaf(node):
             return
         if isinstance(node, dict):
             for key, value in node.items():
+                if key in {'__type__', 'metadata', 'items'}:
+                    continue
                 visit(value, f'{path}/{key}' if path else key)
             return
         invalid.append({'path': path or '(root)', 'message': 'Checklist node is not a folder or checklist list.'})
@@ -667,6 +917,58 @@ def upsert_checklist(
     node[final] = cleaned_lines
 
 
+def upsert_checklist_with_metadata(
+    checklists: MutableMapping[str, Any],
+    path: str,
+    lines: Iterable[str],
+    metadata: Dict[str, Any],
+    overwrite_folder: bool = False,
+) -> None:
+    parts = safe_path_parts(path)
+    if not parts or parts == ['--']:
+        raise ValueError('Checklist path is required.')
+
+    cleaned_lines = [str(line).strip() for line in lines if str(line).strip()]
+    if not cleaned_lines:
+        raise ValueError('Checklist must contain at least one item.')
+
+    node: MutableMapping[str, Any] = checklists
+    for part in parts[:-1]:
+        current = node.get(part)
+        if current is None:
+            node[part] = {}
+            current = node[part]
+        if is_checklist_leaf(current):
+            raise ValueError('Checklist path conflicts with an existing checklist.')
+        if not isinstance(current, dict):
+            raise ValueError('Checklist path conflicts with an invalid node.')
+        node = current
+
+    final = parts[-1]
+    current = node.get(final)
+    if isinstance(current, dict) and not is_checklist_leaf(current) and not overwrite_folder:
+        raise ValueError('Checklist path points to a folder.')
+
+    saved_metadata = validate_content_metadata({
+        **metadata,
+        'title': metadata.get('title') or final,
+        'last_updated': metadata.get('last_updated') or _utc_timestamp(),
+    })
+    node[final] = {
+        '__type__': 'checklist',
+        'metadata': saved_metadata,
+        'items': cleaned_lines,
+    }
+
+
+def update_checklist_metadata(checklists: MutableMapping[str, Any], path: str, metadata: Dict[str, Any]) -> None:
+    parts = safe_path_parts(path)
+    current = _get_node_for_path(checklists, parts)
+    if not is_checklist_leaf(current):
+        raise ValueError('Checklist not found.')
+    upsert_checklist_with_metadata(checklists, path, checklist_items(current), metadata, overwrite_folder=True)
+
+
 def delete_checklist(checklists: MutableMapping[str, Any], path: str) -> bool:
     parts = safe_path_parts(path)
     if not parts or parts == ['--']:
@@ -679,7 +981,7 @@ def delete_checklist(checklists: MutableMapping[str, Any], path: str) -> bool:
         node = node[part]
     if not isinstance(node, dict):
         return False
-    if not isinstance(node.get(parts[-1]), list):
+    if not is_checklist_leaf(node.get(parts[-1])):
         return False
     del node[parts[-1]]
     return True
@@ -788,6 +1090,8 @@ def public_extract_item(entry: Any, category: str) -> Optional[Dict[str, Any]]:
         'page_count': int(metadata.get('page_count') or len(jpgs)),
         'orientation': orientation,
         'metadata': metadata,
+        'status_label': metadata_status_label(metadata),
+        'status_state': metadata_status_state(metadata),
     }
 
 
@@ -893,7 +1197,7 @@ def _issue_lookup(issues: List[Dict[str, Any]]) -> Dict[Tuple[str, str], List[Di
 
 def _json_status() -> Dict[str, Dict[str, Any]]:
     status: Dict[str, Dict[str, Any]] = {}
-    for label, path in {'extracts': EXTRACTS_JSON, 'checklists': CHECKLISTS_JSON}.items():
+    for label, path in {'extracts': EXTRACTS_JSON, 'checklists': CHECKLISTS_JSON, 'audit_log': AUDIT_LOG_JSON}.items():
         readable = True
         message = 'OK'
         try:
@@ -906,12 +1210,51 @@ def _json_status() -> Dict[str, Dict[str, Any]]:
             readable = False
             message = str(exc)
         status[label] = {
-            'path': str(path.relative_to(BASE_DIR)),
+            'path': str(path.relative_to(BASE_DIR) if path.is_relative_to(BASE_DIR) else path),
             'readable': readable,
             'writable': os.access(path, os.W_OK) if path.exists() else os.access(path.parent, os.W_OK),
             'message': message,
         }
     return status
+
+
+def _governance_summary(extract_files: List[Dict[str, Any]], checklist_paths: List[Dict[str, Any]]) -> Dict[str, int]:
+    summary = {
+        'extracts_published': 0,
+        'extracts_non_public': 0,
+        'extracts_expired_or_review_due': 0,
+        'checklists_published': 0,
+        'checklists_non_public': 0,
+        'checklists_expired_or_review_due': 0,
+    }
+
+    for item in extract_files:
+        metadata = normalise_content_metadata(item.get('metadata', {}), item.get('title'))
+        if metadata_is_public(metadata):
+            summary['extracts_published'] += 1
+        else:
+            summary['extracts_non_public'] += 1
+        try:
+            dated_attention = content_is_expired(metadata) or content_review_due(metadata)
+        except ValueError:
+            dated_attention = True
+        if dated_attention:
+            summary['extracts_expired_or_review_due'] += 1
+
+    for item in checklist_paths:
+        metadata = normalise_content_metadata(item.get('metadata', {}), item.get('path'))
+        if item.get('item_count', 0) > 0 and metadata_is_public(metadata):
+            summary['checklists_published'] += 1
+        else:
+            summary['checklists_non_public'] += 1
+        try:
+            dated_attention = content_is_expired(metadata) or content_review_due(metadata)
+        except ValueError:
+            dated_attention = True
+        if dated_attention:
+            summary['checklists_expired_or_review_due'] += 1
+
+    return summary
 
 
 def _admin_context() -> Dict[str, Any]:
@@ -960,8 +1303,11 @@ def _admin_context() -> Dict[str, Any]:
             valid_jpgs = get_valid_jpgs_for_pdf(filename, item.get('jpgs', []))
             public_visible = extract_entry_is_valid(entry)
             if public_visible:
-                visibility_label = 'Published'
-                visibility_state = 'published'
+                visibility_label = metadata_status_label(item)
+                visibility_state = metadata_status_state(item)
+            elif not metadata_is_public(item):
+                visibility_label = f'Hidden: {metadata_status_label(item)}'
+                visibility_state = metadata_status_state(item)
             elif not local_pdf_exists(filename):
                 visibility_label = 'Hidden: missing PDF'
                 visibility_state = 'missing-pdf'
@@ -976,6 +1322,8 @@ def _admin_context() -> Dict[str, Any]:
                 'filename': filename,
                 'title': item.get('title') or _pdf_base(filename),
                 'metadata': item,
+                'status_label': metadata_status_label(item),
+                'status_state': metadata_status_state(item),
                 'jpgs': file_entry_jpgs(entry),
                 'valid_jpgs': valid_jpgs,
                 'issue_count': len(file_issues),
@@ -986,6 +1334,8 @@ def _admin_context() -> Dict[str, Any]:
                 'visibility_state': visibility_state,
             })
         category_rows.append({**category, 'files': files})
+
+    governance = _governance_summary(extract_files, checklist_paths)
 
     return {
         'extracts': extracts,
@@ -1001,6 +1351,9 @@ def _admin_context() -> Dict[str, Any]:
             'checklist_items': count_checklist_items(checklists),
             'warning_count': len(all_issues),
         },
+        'governance': governance,
+        'recent_audit_entries': latest_audit_entries(10),
+        'now_date': date.today().isoformat(),
         'health': {
             'issues': all_issues,
             'missing_pdfs': missing_pdfs,
@@ -1077,16 +1430,16 @@ def _checklist_sibling_items(tree: Any, parent_path: str) -> List[Dict[str, str]
 
     siblings: List[Dict[str, str]] = []
     for name, value in parent.items():
-        if isinstance(value, dict) and checklist_group_has_content(value):
-            siblings.append({
-                'label': name,
-                'kind': 'Group',
-                'url': url_for('checklist_category', category=f'{parent_path}/{name}'.strip('/')),
-            })
-        elif is_valid_checklist_node(value):
+        if is_valid_checklist_node(value):
             siblings.append({
                 'label': name,
                 'kind': 'Checklist',
+                'url': url_for('checklist_category', category=f'{parent_path}/{name}'.strip('/')),
+            })
+        elif isinstance(value, dict) and checklist_group_has_content(value):
+            siblings.append({
+                'label': name,
+                'kind': 'Group',
                 'url': url_for('checklist_category', category=f'{parent_path}/{name}'.strip('/')),
             })
     return siblings
@@ -1135,6 +1488,7 @@ def login():
         if password == expected:
             session['logged_in'] = True
             session['is_admin'] = True
+            append_audit_log('admin_login_success', 'auth', 'admin', 'Admin login successful')
             flash('Logged in.', 'success')
             next_url = _safe_redirect_target(request.form.get('next'))
             return redirect(next_url)
@@ -1145,6 +1499,8 @@ def login():
 
 @app.route('/logout')
 def logout():
+    if is_admin():
+        append_audit_log('admin_logout', 'auth', 'admin', 'Admin logged out')
     session.clear()
     flash('Logged out.', 'info')
     return redirect(url_for('home'))
@@ -1182,6 +1538,7 @@ def stream():
 @app.route('/trigger_refresh', methods=['POST'])  # legacy alias
 def trigger_refresh():
     trigger_client_refresh()
+    append_audit_log('trigger_refresh', 'system', 'clients', 'Triggered client refresh')
     return 'OK'
 
 # ---------------------- Home ---------------------- #
@@ -1229,6 +1586,21 @@ def checklist_category(category):
 
     data = filtered_checklist_tree(get_checklists()) or {}
     current = _get_node_for_path(data, safe_path_parts(normalised))
+    if is_valid_checklist_node(current):
+        parts = safe_path_parts(normalised)
+        parent_path = '/'.join(parts[:-1]) if len(parts) > 1 else ''
+        metadata = checklist_metadata(current, parts[-1] if parts else None)
+        return render_template(
+            'checklist_view.html',
+            category=normalised,
+            items=checklist_items(current),
+            metadata=metadata,
+            status_label=metadata_status_label(metadata),
+            status_state=metadata_status_state(metadata),
+            breadcrumbs=_breadcrumb_items('Checklists', 'checklist_index', normalised, 'checklist_category', 'category'),
+            parent_path=parent_path,
+            sibling_items=_checklist_sibling_items(data, parent_path),
+        )
     if isinstance(current, dict) and checklist_group_has_content(current):
         parts = safe_path_parts(normalised)
         parent_path = '/'.join(parts[:-1]) if len(parts) > 1 else ''
@@ -1238,17 +1610,6 @@ def checklist_category(category):
             subcategories=current,
             breadcrumbs=_breadcrumb_items('Checklists', 'checklist_index', normalised, 'checklist_category', 'category'),
             checklist_count=len(flatten_checklist_paths(current)),
-            sibling_items=_checklist_sibling_items(data, parent_path),
-        )
-    if is_valid_checklist_node(current):
-        parts = safe_path_parts(normalised)
-        parent_path = '/'.join(parts[:-1]) if len(parts) > 1 else ''
-        return render_template(
-            'checklist_view.html',
-            category=normalised,
-            items=current,
-            breadcrumbs=_breadcrumb_items('Checklists', 'checklist_index', normalised, 'checklist_category', 'category'),
-            parent_path=parent_path,
             sibling_items=_checklist_sibling_items(data, parent_path),
         )
     return _unavailable('Checklist unavailable', 'This checklist is not currently published in the local EQRF content set.', 'Back to Checklists', 'checklist_index')
@@ -1334,11 +1695,14 @@ def extracts_viewer(category, filename):
     if entry is None:
         return _unavailable('Extract unavailable', 'This PDF is not registered in the selected EQRF category.', 'Back to Extracts', 'extracts_index')
 
+    item = normalise_file_entry(entry)
+    if not metadata_is_public(item):
+        return _unavailable('Extract unavailable', 'This PDF is not currently published in the local EQRF content set.', 'Back to Extracts', 'extracts_index')
+
     pdf_path = PDF_DIR / filename
     if not pdf_path.exists():
         return _unavailable('Extract unavailable', 'The local source PDF is missing and must be repaired in Admin.', 'Back to Extracts', 'extracts_index')
 
-    item = normalise_file_entry(entry)
     jpgs = get_valid_jpgs_for_pdf(filename, file_entry_jpgs(entry))
     if not jpgs:
         # Safety net: render if missing (normally done at upload time)
@@ -1365,6 +1729,9 @@ def extracts_viewer(category, filename):
         'orientation': orientation,
         'page_count': int(item.get('page_count') or len(jpgs)),
         'category': normalised_category,
+        'metadata': item,
+        'status_label': metadata_status_label(item),
+        'status_state': metadata_status_state(item),
     }
     parent_path = normalised_category
     if normalised_category == '--':
@@ -1419,6 +1786,46 @@ def admin_panel():
     return render_template('admin_dashboard.html', **_admin_context())
 
 
+@app.route('/admin/audit')
+@login_required
+def admin_audit():
+    limit_arg = request.args.get('limit', '50')
+    if limit_arg == 'all':
+        limit = None
+    else:
+        try:
+            limit = int(limit_arg)
+        except ValueError:
+            limit = 50
+        limit = max(1, min(limit, 500))
+
+    action_filter = (request.args.get('action') or '').strip().lower()
+    target_filter = (request.args.get('target_type') or '').strip().lower()
+    search = (request.args.get('q') or '').strip().lower()
+    entries = latest_audit_entries(limit)
+    if action_filter:
+        entries = [entry for entry in entries if str(entry.get('action', '')).lower() == action_filter]
+    if target_filter:
+        entries = [entry for entry in entries if str(entry.get('target_type', '')).lower() == target_filter]
+    if search:
+        entries = [
+            entry for entry in entries
+            if search in json.dumps(entry, ensure_ascii=False).lower()
+        ]
+
+    all_entries = get_audit_log()
+    return render_template(
+        'admin_audit.html',
+        entries=entries,
+        actions=sorted({str(entry.get('action', '')) for entry in all_entries if entry.get('action')}),
+        target_types=sorted({str(entry.get('target_type', '')) for entry in all_entries if entry.get('target_type')}),
+        selected_action=action_filter,
+        selected_target_type=target_filter,
+        query=search,
+        limit_arg=limit_arg,
+    )
+
+
 @app.route('/admin/upload_pdf', methods=['POST'])
 @login_required
 def upload_pdf():
@@ -1443,6 +1850,11 @@ def upload_pdf():
         category = normalise_category_path(raw_category)
         if not category:
             category = 'MISC'
+        governance_metadata = metadata_from_form(_pdf_base(safe_name))
+        if is_na(request.form.get('version')):
+            governance_metadata['version'] = '1.0'
+        if is_na(request.form.get('effective_date')):
+            governance_metadata['effective_date'] = date.today().isoformat()
 
         extracts = _json_clone(get_extracts())
         parts = safe_path_parts(category)
@@ -1476,12 +1888,12 @@ def upload_pdf():
             old_jpgs = file_entry_jpgs(existing_entry) if existing_entry else _jpg_names_for_pdf(safe_name)
             metadata = {
                 'pdf': safe_name,
-                'title': _pdf_base(safe_name),
                 'jpgs': jpgs,
                 'orientation': orientation,
                 'page_count': len(jpgs),
-                'uploaded_at': datetime.now(timezone.utc).isoformat(),
+                'uploaded_at': _utc_timestamp(),
                 'source': 'admin',
+                **governance_metadata,
             }
 
             tmp_pdf.replace(PDF_DIR / safe_name)
@@ -1492,10 +1904,90 @@ def upload_pdf():
         upsert_pdf_entry(extracts, category, metadata, replace=replace)
         save_extracts(extracts)
         trigger_client_refresh()
+        append_audit_log(
+            'upload_extract',
+            'extract',
+            f'{category}/{safe_name}',
+            f'Uploaded extract {safe_name} to {category}',
+            {
+                'version': metadata.get('version'),
+                'effective_date': metadata.get('effective_date'),
+                'expiry_date': metadata.get('expiry_date'),
+                'review_date': metadata.get('review_date'),
+                'status': metadata.get('status'),
+            },
+        )
         flash(f'Uploaded {safe_name} to {category}. {len(jpgs)} pages converted.', 'success')
     except ValueError as exc:
         flash(str(exc), 'error')
     return redirect(url_for('admin_panel'))
+
+
+@app.route('/admin/extracts/edit', methods=['GET', 'POST'])
+@login_required
+def admin_extract_edit():
+    category = request.values.get('category') or ''
+    filename = request.values.get('filename') or ''
+    try:
+        category = normalise_category_path(category)
+    except ValueError as exc:
+        flash(str(exc), 'error')
+        return redirect(url_for('admin_panel'))
+
+    extracts = _json_clone(get_extracts())
+    node = _get_node_for_path(extracts, safe_path_parts(category))
+    entry = _find_file_entry(node, filename) if node is not None else None
+    if entry is None:
+        flash('File not found in category.', 'error')
+        return redirect(url_for('admin_panel'))
+
+    item = normalise_file_entry(entry)
+    if request.method == 'POST':
+        try:
+            metadata = metadata_from_form(item.get('title') or _pdf_base(filename))
+            orientation = request.form.get('orientation') or item.get('orientation') or 'portrait'
+            if orientation not in {'portrait', 'landscape'}:
+                raise ValueError('Invalid orientation selection.')
+            item.update(metadata)
+            item['orientation'] = orientation
+            upsert_pdf_entry(extracts, category, item, replace=True)
+            save_extracts(extracts)
+            trigger_client_refresh()
+            append_audit_log(
+                'update_extract_metadata',
+                'extract',
+                f'{category}/{filename}',
+                f'Updated extract metadata for {filename}',
+                {
+                    'version': item.get('version'),
+                    'effective_date': item.get('effective_date'),
+                    'expiry_date': item.get('expiry_date'),
+                    'review_date': item.get('review_date'),
+                    'status': item.get('status'),
+                },
+            )
+            flash(f'Updated metadata for {filename}.', 'success')
+            return redirect(url_for('admin_panel'))
+        except ValueError as exc:
+            flash(str(exc), 'error')
+            item.update(normalise_content_metadata({
+                'title': request.form.get('title'),
+                'version': request.form.get('version'),
+                'effective_date': request.form.get('effective_date'),
+                'expiry_date': request.form.get('expiry_date'),
+                'review_date': request.form.get('review_date'),
+                'owner': request.form.get('owner'),
+                'status': request.form.get('status'),
+                'last_updated': item.get('last_updated'),
+            }, item.get('title')))
+
+    return render_template(
+        'admin_extract_edit.html',
+        category=category,
+        filename=filename,
+        item=item,
+        statuses=sorted(CONTENT_STATUSES),
+    )
 
 
 @app.route('/admin/delete_pdf', methods=['POST'])
@@ -1518,6 +2010,7 @@ def delete_pdf():
                 _remove_jpg_files(_jpg_names_for_pdf(filename))
             save_extracts(extracts)
             trigger_client_refresh()
+            append_audit_log('delete_extract', 'extract', f'{category}/{filename}', f'Deleted extract {filename} from {category}')
             flash(f'Deleted {filename} from {category}.', 'info')
         else:
             flash('File not found in category.', 'error')
@@ -1566,12 +2059,14 @@ def regenerate_pdf():
             'jpgs': jpgs,
             'orientation': item.get('orientation') or detected_orientation,
             'page_count': len(jpgs),
-            'regenerated_at': datetime.now(timezone.utc).isoformat(),
+            'regenerated_at': _utc_timestamp(),
+            'last_updated': _utc_timestamp(),
             'source': item.get('source') or 'admin',
         })
         upsert_pdf_entry(extracts, category, item, replace=True)
         save_extracts(extracts)
         trigger_client_refresh()
+        append_audit_log('regenerate_extract_jpgs', 'extract', f'{category}/{filename}', f'Regenerated JPG pages for {filename}')
         flash(f'Regenerated {len(jpgs)} JPG pages for {filename}.', 'success')
     except ValueError as exc:
         flash(str(exc), 'error')
@@ -1620,6 +2115,7 @@ def delete_category():
                     pass
         save_extracts(extracts)
         trigger_client_refresh()
+        append_audit_log('delete_extract_category', 'extract_category', category, f'Deleted extract category {category}')
         flash(f'Deleted category {category}.', 'info')
     else:
         flash('Failed to delete category.', 'error')
@@ -1649,10 +2145,13 @@ def admin_checklist_new():
         overwrite_folder = request.form.get('overwrite_folder') == 'true'
         try:
             checklists = _json_clone(get_checklists())
-            upsert_checklist(checklists, path, lines, overwrite_folder=overwrite_folder)
+            normalised_path = normalise_category_path(path)
+            metadata = metadata_from_form(Path(normalised_path).name if normalised_path else None)
+            upsert_checklist_with_metadata(checklists, normalised_path, lines, metadata, overwrite_folder=overwrite_folder)
             save_checklists(checklists)
             trigger_client_refresh()
-            flash(f'Checklist saved: {normalise_category_path(path)}', 'success')
+            append_audit_log('create_checklist', 'checklist', normalised_path, f'Created checklist {normalised_path}', metadata)
+            flash(f'Checklist saved: {normalised_path}', 'success')
             return redirect(url_for('admin_checklists'))
         except ValueError as exc:
             flash(str(exc), 'error')
@@ -1662,8 +2161,26 @@ def admin_checklist_new():
                 path=path,
                 original_path='',
                 text=text,
+                metadata=normalise_content_metadata({
+                    'title': request.form.get('title'),
+                    'version': request.form.get('version'),
+                    'effective_date': request.form.get('effective_date'),
+                    'expiry_date': request.form.get('expiry_date'),
+                    'review_date': request.form.get('review_date'),
+                    'owner': request.form.get('owner'),
+                    'status': request.form.get('status'),
+                }, None),
+                statuses=sorted(CONTENT_STATUSES),
             )
-    return render_template('admin_checklist_edit.html', mode='new', path='', original_path='', text='')
+    return render_template(
+        'admin_checklist_edit.html',
+        mode='new',
+        path='',
+        original_path='',
+        text='',
+        metadata={**default_content_metadata(''), 'version': '1.0', 'effective_date': date.today().isoformat()},
+        statuses=sorted(CONTENT_STATUSES),
+    )
 
 
 @app.route('/admin/checklists/edit', methods=['GET', 'POST'])
@@ -1678,22 +2195,41 @@ def admin_checklist_edit():
             normalised_path = normalise_category_path(path)
             normalised_original = normalise_category_path(original_path)
             checklists = _json_clone(get_checklists())
-            upsert_checklist(checklists, normalised_path, text.splitlines(), overwrite_folder=overwrite_folder)
+            metadata = metadata_from_form(Path(normalised_path).name if normalised_path else None)
+            upsert_checklist_with_metadata(checklists, normalised_path, text.splitlines(), metadata, overwrite_folder=overwrite_folder)
             if normalised_original != normalised_path:
                 delete_checklist(checklists, normalised_original)
             save_checklists(checklists)
             trigger_client_refresh()
+            append_audit_log('edit_checklist', 'checklist', normalised_path, f'Updated checklist {normalised_path}', metadata)
+            append_audit_log('update_checklist_metadata', 'checklist', normalised_path, f'Updated checklist metadata for {normalised_path}', metadata)
             flash(f'Checklist saved: {normalised_path}', 'success')
             return redirect(url_for('admin_checklists'))
         except ValueError as exc:
             flash(str(exc), 'error')
-            return render_template('admin_checklist_edit.html', mode='edit', path=path, original_path=original_path, text=text)
+            return render_template(
+                'admin_checklist_edit.html',
+                mode='edit',
+                path=path,
+                original_path=original_path,
+                text=text,
+                metadata=normalise_content_metadata({
+                    'title': request.form.get('title'),
+                    'version': request.form.get('version'),
+                    'effective_date': request.form.get('effective_date'),
+                    'expiry_date': request.form.get('expiry_date'),
+                    'review_date': request.form.get('review_date'),
+                    'owner': request.form.get('owner'),
+                    'status': request.form.get('status'),
+                }, None),
+                statuses=sorted(CONTENT_STATUSES),
+            )
 
     path = request.args.get('path') or ''
     try:
         normalised = normalise_category_path(path)
         current = _get_node_for_path(get_checklists(), safe_path_parts(normalised))
-        if not isinstance(current, list):
+        if not is_checklist_leaf(current):
             flash('Checklist not found.', 'error')
             return redirect(url_for('admin_checklists'))
         return render_template(
@@ -1701,7 +2237,9 @@ def admin_checklist_edit():
             mode='edit',
             path=normalised,
             original_path=normalised,
-            text='\n'.join(current),
+            text='\n'.join(checklist_items(current)),
+            metadata=checklist_metadata(current, Path(normalised).name),
+            statuses=sorted(CONTENT_STATUSES),
         )
     except ValueError as exc:
         flash(str(exc), 'error')
@@ -1717,6 +2255,7 @@ def admin_checklist_delete():
         if delete_checklist(checklists, path):
             save_checklists(checklists)
             trigger_client_refresh()
+            append_audit_log('delete_checklist', 'checklist', normalise_category_path(path), f'Deleted checklist {normalise_category_path(path)}')
             flash(f'Deleted checklist: {normalise_category_path(path)}', 'info')
         else:
             flash('Checklist not found.', 'error')
@@ -1736,10 +2275,14 @@ def admin_checklist_preview():
             flash('Checklist is not published because it is empty or invalid.', 'error')
             return redirect(url_for('admin_checklists'))
         parts = safe_path_parts(normalised)
+        metadata = checklist_metadata(current, parts[-1] if parts else None)
         return render_template(
             'checklist_view.html',
             category=normalised,
-            items=[str(line).strip() for line in current if str(line).strip()],
+            items=checklist_items(current),
+            metadata=metadata,
+            status_label=metadata_status_label(metadata),
+            status_state=metadata_status_state(metadata),
             breadcrumbs=_breadcrumb_items('Checklists', 'checklist_index', normalised, 'checklist_category', 'category'),
             parent_path='/'.join(parts[:-1]) if len(parts) > 1 else '',
             sibling_items=_checklist_sibling_items(filtered_checklist_tree(get_checklists()) or {}, '/'.join(parts[:-1]) if len(parts) > 1 else ''),

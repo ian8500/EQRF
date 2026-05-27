@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Audit Log{% endblock %}
+
+{% block content %}
+<section class="page-shell">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Audit trail</p>
+      <h2 class="page-title">Audit Log</h2>
+      <p class="page-copy">Append-only operational activity recorded from Admin workflows.</p>
+    </div>
+    <a class="btn" href="{{ url_for('admin_panel') }}">Back to Admin</a>
+  </div>
+
+  <section class="card">
+    <form class="filter-bar" method="get" action="{{ url_for('admin_audit') }}">
+      <label>
+        Action
+        <select name="action">
+          <option value="">All</option>
+          {% for action in actions %}
+            <option value="{{ action }}" {% if action == selected_action %}selected{% endif %}>{{ action }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Target
+        <select name="target_type">
+          <option value="">All</option>
+          {% for target_type in target_types %}
+            <option value="{{ target_type }}" {% if target_type == selected_target_type %}selected{% endif %}>{{ target_type }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Search
+        <input type="search" name="q" value="{{ query }}">
+      </label>
+      <label>
+        Limit
+        <select name="limit">
+          {% for value in ['50', '100', 'all'] %}
+            <option value="{{ value }}" {% if value == limit_arg %}selected{% endif %}>{{ value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="btn" type="submit">Apply</button>
+    </form>
+  </section>
+
+  <section class="card admin-span">
+    {% if entries %}
+      <div class="table-wrap">
+        <table class="audit-table">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>User</th>
+              <th>Action</th>
+              <th>Target</th>
+              <th>Path</th>
+              <th>Summary</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for entry in entries %}
+              <tr>
+                <td>{{ entry.timestamp }}</td>
+                <td>{{ entry.user }}</td>
+                <td>{{ entry.action }}</td>
+                <td>{{ entry.target_type }}</td>
+                <td>{{ entry.target_path }}</td>
+                <td>{{ entry.summary }}</td>
+                <td>
+                  {% if entry.details %}
+                    <details>
+                      <summary>View</summary>
+                      <pre>{{ entry.details | tojson(indent=2) }}</pre>
+                    </details>
+                  {% else %}
+                    N/A
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="page-copy">No matching audit entries.</p>
+    {% endif %}
+  </section>
+</section>
+{% endblock %}

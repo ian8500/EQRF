@@ -1339,6 +1339,116 @@ th {
   box-shadow: 0 16px 42px rgba(24, 57, 76, 0.2);
 }
 
+.form-grid,
+.governance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+}
+
+.metadata-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.metadata-row span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.public-metadata {
+  margin-top: 10px;
+}
+
+.public-metadata span {
+  font-size: 0.78rem;
+}
+
+.audit-mini-list {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.audit-mini-list li {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.audit-mini-list span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.filter-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.audit-table {
+  width: 100%;
+  min-width: 900px;
+  border-collapse: collapse;
+}
+
+.audit-table th,
+.audit-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.audit-table pre {
+  max-width: 360px;
+  overflow: auto;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.status-chip.expired,
+.status-chip.review-due,
+.visibility-chip.expired,
+.visibility-chip.review-due {
+  border-color: rgba(255, 184, 77, 0.55);
+  color: var(--amber);
+  background: rgba(255, 184, 77, 0.12);
+}
+
+.status-chip.draft,
+.status-chip.hidden,
+.status-chip.archived,
+.status-chip.not-yet-effective,
+.visibility-chip.draft,
+.visibility-chip.hidden,
+.visibility-chip.archived,
+.visibility-chip.not-yet-effective {
+  border-color: rgba(118, 226, 255, 0.35);
+  color: var(--cyan);
+  background: rgba(118, 226, 255, 0.1);
+}
+
 body.dark,
 body.night-mode,
 html.night-mode body,

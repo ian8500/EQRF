@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Edit Extract Metadata{% endblock %}
+
+{% block content %}
+<section class="page-shell">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Extract governance</p>
+      <h2 class="page-title">Edit Extract Metadata</h2>
+      <p class="page-copy">{{ category }} / {{ filename }}</p>
+    </div>
+    <a class="btn" href="{{ url_for('admin_panel') }}">Back to Admin</a>
+  </div>
+
+  <section class="card">
+    <form class="form-stack" method="post" action="{{ url_for('admin_extract_edit') }}">
+      <input type="hidden" name="category" value="{{ category }}">
+      <input type="hidden" name="filename" value="{{ filename }}">
+      <input type="hidden" name="last_updated" value="{{ item.last_updated }}">
+
+      <div class="form-grid">
+        <label for="title">
+          Display title
+          <input id="title" name="title" type="text" value="{{ item.title }}">
+        </label>
+        <label for="version">
+          Version
+          <input id="version" name="version" type="text" value="{{ item.version }}">
+        </label>
+        <label for="effective_date">
+          Effective date
+          <input id="effective_date" name="effective_date" type="text" value="{{ item.effective_date }}">
+        </label>
+        <label for="expiry_date">
+          Expiry date
+          <input id="expiry_date" name="expiry_date" type="text" value="{{ item.expiry_date }}">
+        </label>
+        <label for="review_date">
+          Review date
+          <input id="review_date" name="review_date" type="text" value="{{ item.review_date }}">
+        </label>
+        <label for="owner">
+          Owner
+          <input id="owner" name="owner" type="text" value="{{ item.owner }}">
+        </label>
+        <label for="status">
+          Status
+          <select id="status" name="status">
+            {% for status in statuses %}
+              <option value="{{ status }}" {% if status == item.status %}selected{% endif %}>{{ status }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label for="orientation">
+          Orientation
+          <select id="orientation" name="orientation">
+            {% for orientation in ['portrait', 'landscape'] %}
+              <option value="{{ orientation }}" {% if orientation == item.orientation %}selected{% endif %}>{{ orientation }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+
+      <div class="admin-actions">
+        <button class="btn success" type="submit">Save metadata</button>
+        <a class="btn" href="{{ url_for('admin_panel') }}">Cancel</a>
+      </div>
+    </form>
+  </section>
+</section>
+{% endblock %}

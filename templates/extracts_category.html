@@ -42,6 +42,15 @@
       {% for item in items %}
         <a class="extract-card pdf" href="{{ url_for('extracts_viewer', category=category, filename=item.filename) }}">
           <strong>{{ item.label }}</strong>
+          <span class="metadata-row public-metadata">
+            <span>Version {{ item.metadata.version }}</span>
+            <span>Effective {{ item.metadata.effective_date }}</span>
+            <span>Review {{ item.metadata.review_date }}</span>
+            <span>Expiry {{ item.metadata.expiry_date }}</span>
+            {% if item.status_label != 'Published' %}
+              <span class="status-chip {{ item.status_state }}">{{ item.status_label }}</span>
+            {% endif %}
+          </span>
         </a>
       {% endfor %}
     </div>

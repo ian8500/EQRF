@@ -20,6 +20,12 @@
             <div class="document-summary">
               <strong>{{ checklist.path }}</strong>
               <span>{{ checklist.item_count }} item{{ '' if checklist.item_count == 1 else 's' }}</span>
+              <div class="metadata-row">
+                <span>Version {{ checklist.metadata.version }}</span>
+                <span>Effective {{ checklist.metadata.effective_date }}</span>
+                <span>Review {{ checklist.metadata.review_date }}</span>
+                <span>Expiry {{ checklist.metadata.expiry_date }}</span>
+              </div>
               <span class="visibility-chip {{ checklist.visibility_state }}">{{ checklist.visibility_label }}</span>
             </div>
             <div class="admin-actions">

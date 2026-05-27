@@ -34,6 +34,33 @@
     </article>
   </section>
 
+  <section class="overview-grid governance-grid">
+    <article class="metric-card">
+      <span class="tile-code">Extracts published</span>
+      <strong>{{ governance.extracts_published }}</strong>
+    </article>
+    <article class="metric-card warning">
+      <span class="tile-code">Extracts draft/hidden/archived</span>
+      <strong>{{ governance.extracts_non_public }}</strong>
+    </article>
+    <article class="metric-card warning">
+      <span class="tile-code">Extracts expired/review due</span>
+      <strong>{{ governance.extracts_expired_or_review_due }}</strong>
+    </article>
+    <article class="metric-card">
+      <span class="tile-code">Checklists published</span>
+      <strong>{{ governance.checklists_published }}</strong>
+    </article>
+    <article class="metric-card warning">
+      <span class="tile-code">Checklists draft/hidden/archived</span>
+      <strong>{{ governance.checklists_non_public }}</strong>
+    </article>
+    <article class="metric-card warning">
+      <span class="tile-code">Checklists expired/review due</span>
+      <strong>{{ governance.checklists_expired_or_review_due }}</strong>
+    </article>
+  </section>
+
   <div class="admin-grid">
     <section class="card">
       <div>
@@ -67,6 +94,42 @@
           </select>
         </label>
 
+        <div class="form-grid">
+          <label for="title">
+            Display title
+            <input id="title" name="title" type="text" placeholder="Defaults to filename">
+          </label>
+          <label for="version">
+            Version
+            <input id="version" name="version" type="text" value="1.0">
+          </label>
+          <label for="effective_date">
+            Effective date
+            <input id="effective_date" name="effective_date" type="text" value="{{ now_date or '' }}" placeholder="YYYY-MM-DD or N/A">
+          </label>
+          <label for="expiry_date">
+            Expiry date
+            <input id="expiry_date" name="expiry_date" type="text" value="N/A">
+          </label>
+          <label for="review_date">
+            Review date
+            <input id="review_date" name="review_date" type="text" value="N/A">
+          </label>
+          <label for="owner">
+            Owner
+            <input id="owner" name="owner" type="text" value="N/A">
+          </label>
+          <label for="status">
+            Status
+            <select id="status" name="status">
+              <option value="published">published</option>
+              <option value="draft">draft</option>
+              <option value="hidden">hidden</option>
+              <option value="archived">archived</option>
+            </select>
+          </label>
+        </div>
+
         <label for="file">
           PDF file
           <input type="file" name="file" id="file" accept="application/pdf" required>
@@ -90,7 +153,28 @@
       <div class="admin-actions">
         <a class="btn success" href="{{ url_for('admin_checklist_new') }}">Create checklist</a>
         <a class="btn" href="{{ url_for('admin_checklists') }}">Open checklist tree</a>
+        <a class="btn" href="{{ url_for('admin_audit') }}">Audit Log</a>
       </div>
+    </section>
+
+    <section class="card">
+      <div>
+        <p class="eyebrow">Audit trail</p>
+        <h3>Recent activity</h3>
+      </div>
+      {% if recent_audit_entries %}
+        <ul class="audit-mini-list">
+          {% for entry in recent_audit_entries %}
+            <li>
+              <strong>{{ entry.action }}</strong>
+              <span>{{ entry.timestamp }} · {{ entry.target_path }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="page-copy">No audit entries recorded.</p>
+      {% endif %}
+      <a class="btn" href="{{ url_for('admin_audit') }}">Open Audit Log</a>
     </section>
 
     <section class="card admin-span">
@@ -123,6 +207,13 @@
                     <div class="document-summary">
                       <strong>{{ file.title }}</strong>
                       <span>{{ file.filename }}</span>
+                      <div class="metadata-row">
+                        <span>Version {{ file.metadata.version }}</span>
+                        <span>Effective {{ file.metadata.effective_date }}</span>
+                        <span>Review {{ file.metadata.review_date }}</span>
+                        <span>Expiry {{ file.metadata.expiry_date }}</span>
+                        <span>Updated {{ file.metadata.last_updated }}</span>
+                      </div>
                       <div class="status-chip-row">
                         <span class="visibility-chip {{ file.visibility_state }}">{{ file.visibility_label }}</span>
                         {% if file.issue_count %}
@@ -142,6 +233,7 @@
                       {% else %}
                         <span class="status-chip warning">Preview hidden</span>
                       {% endif %}
+                      <a class="btn" href="{{ url_for('admin_extract_edit', category=category.path, filename=file.filename) }}">Edit metadata</a>
                       <form action="{{ url_for('regenerate_pdf') }}" method="post">
                         <input type="hidden" name="category" value="{{ category.path }}">
                         <input type="hidden" name="filename" value="{{ file.filename }}">
@@ -176,6 +268,13 @@
               <div class="document-summary">
                 <strong>{{ checklist.path }}</strong>
                 <span>{{ checklist.item_count }} item{{ '' if checklist.item_count == 1 else 's' }}</span>
+                <div class="metadata-row">
+                  <span>Version {{ checklist.metadata.version }}</span>
+                  <span>Effective {{ checklist.metadata.effective_date }}</span>
+                  <span>Review {{ checklist.metadata.review_date }}</span>
+                  <span>Expiry {{ checklist.metadata.expiry_date }}</span>
+                  <span>Updated {{ checklist.metadata.last_updated }}</span>
+                </div>
                 <span class="visibility-chip {{ checklist.visibility_state }}">{{ checklist.visibility_label }}</span>
               </div>
               <div class="admin-actions">
