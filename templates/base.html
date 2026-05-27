@@ -51,7 +51,7 @@
         <a class="nav-button" href="#" onclick="history.back(); return false;">⬅️ Back</a>
         <a class="nav-button" id="night-toggle" href="#">🌓 Toggle</a>
         {% if session.get('logged_in') %}
-          <a class="nav-button" href="/admin/register">⚙️ Admin</a>
+          <a class="nav-button" href="{{ url_for('admin_panel') }}">⚙️ Admin</a>
           <a class="nav-button" href="/logout">🚪 Logout</a>
         {% else %}
           <a class="nav-button" href="/login">🔐 login</a>

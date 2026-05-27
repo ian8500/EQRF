@@ -12,10 +12,13 @@
 <hr>
 <h3>Quick Reference</h3>
 <div class="button-group">
-    {% for idx, pdf in enumerate(home_pdfs) %}
-        <a class="nav-button" href="{{ url_for('viewer', category='--', file_idx=idx) }}">
-            📘 {{ pdf.pdf[:-4] if pdf.pdf.endswith('.pdf') else pdf.pdf }}
+    {% for pdf in home_pdfs %}
+        {% set filename = file_entry_name(pdf) %}
+        {% if filename %}
+        <a class="nav-button" href="{{ url_for('extracts_viewer', category='--', filename=filename) }}">
+            📘 {{ filename[:-4] if filename.lower().endswith('.pdf') else filename }}
         </a>
+        {% endif %}
     {% endfor %}
 </div>
 {% endif %}

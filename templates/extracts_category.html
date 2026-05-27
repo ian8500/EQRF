@@ -16,9 +16,9 @@
     {# PDF files at this level #}
     {% if items %}
         {% for item in items %}
-            <form action="{{ url_for('viewer', category=category, file_idx=item.idx) }}" method="get" style="margin: 0;">
+            <form action="{{ url_for('extracts_viewer', category=category, filename=item.filename) }}" method="get" style="margin: 0;">
                 <button type="submit" class="extract-btn">
-                    📄 {{ item.file.pdf[:-4] if item.file.pdf.endswith('.pdf') else item.file.pdf }}
+                    📄 {{ item.label }}
                 </button>
             </form>
         {% endfor %}

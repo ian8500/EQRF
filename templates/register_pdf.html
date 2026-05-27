@@ -19,7 +19,7 @@
   <section class="card" style="border:1px solid #ddd; border-radius:12px; padding:16px;">
     <h2 style="margin-top:0;">Upload PDF to Extracts</h2>
 
-    <form method="post" enctype="multipart/form-data" onsubmit="return setCategoryPath();">
+    <form action="{{ url_for('upload_pdf') }}" method="post" enctype="multipart/form-data" onsubmit="return setCategoryPath();">
       <!-- Choose existing category -->
       <label for="existing_category"><strong>Existing category</strong></label><br>
       <select id="existing_category" style="width:100%; padding:.4rem; margin:.4rem 0;">
@@ -36,7 +36,7 @@
              style="width:100%; padding:.4rem; margin:.4rem 0;">
 
       <!-- Hidden field your route expects -->
-      <input type="hidden" name="category_path" id="category_path" value="">
+      <input type="hidden" name="category" id="category_path" value="">
 
       <!-- Orientation -->
       <label for="orientation"><strong>Orientation</strong></label><br>
@@ -46,8 +46,8 @@
       </select>
 
       <!-- PDF file -->
-      <label for="pdf"><strong>PDF file</strong></label><br>
-      <input type="file" name="pdf" id="pdf" accept="application/pdf" required
+      <label for="file"><strong>PDF file</strong></label><br>
+      <input type="file" name="file" id="file" accept="application/pdf" required
              style="width:100%; padding:.4rem; margin:.4rem 0;">
 
       <button type="submit" class="btn">Upload</button>
@@ -88,9 +88,10 @@
         {% for path in extract_paths %}
           <li style="display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.4rem 0; border-bottom:1px dashed #eee;">
             <span>{{ path }}</span>
-            <form action="{{ url_for('delete_category', category=path) }}" method="post"
+            <form action="{{ url_for('delete_category') }}" method="post"
                   onsubmit="return confirm('Delete entire category and all PDFs: {{ path }} ?');"
                   style="display:inline;">
+              <input type="hidden" name="category" value="{{ path }}">
               <button class="btn danger" type="submit">Delete Category</button>
             </form>
           </li>
@@ -121,15 +122,20 @@
           {% set here = prefix or "--" %}
           <ul style="list-style:none; padding-left:0; margin:.3rem 0 1rem;">
             {% for fname in node["__files__"] %}
+              {% set filename = file_entry_name(fname) %}
+              {% if filename %}
               <li style="display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.25rem 0; border-bottom:1px dotted #eee;">
-                <span>📄 {{ fname }}</span>
-                <form action="{{ url_for('delete_pdf', category=here, filename=fname) }}"
+                <span>📄 {{ filename }}</span>
+                <form action="{{ url_for('delete_pdf') }}"
                       method="post"
-                      onsubmit="return confirm('Delete {{ fname }} from {{ here }}?');"
+                      onsubmit="return confirm('Delete {{ filename }} from {{ here }}?');"
                       style="display:inline;">
+                  <input type="hidden" name="category" value="{{ here }}">
+                  <input type="hidden" name="filename" value="{{ filename }}">
                   <button class="btn danger" type="submit">Delete</button>
                 </form>
               </li>
+              {% endif %}
             {% endfor %}
           </ul>
         {% endif %}

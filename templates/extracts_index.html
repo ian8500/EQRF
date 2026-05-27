@@ -15,7 +15,7 @@
     {% if root_files %}
         {% for pdf in root_files %}
             <form action="{{ url_for('extracts_viewer', category='', filename=pdf) }}" method="get" style="margin: 0;">
-                <button type="submit" class="extract-btn">{{ pdf }}</button>
+                <button type="submit" class="extract-btn">{{ pdf[:-4] if pdf.lower().endswith('.pdf') else pdf }}</button>
             </form>
         {% endfor %}
     {% endif %}

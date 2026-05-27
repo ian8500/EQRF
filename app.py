@@ -78,7 +78,10 @@ def add_caching_headers(resp):
 # Inject enumerate as a Jinja helper (fixes the missing filter error)
 @app.context_processor
 def utility_processor():
-    return dict(enumerate=enumerate)
+    return dict(
+        enumerate=enumerate,
+        file_entry_name=file_entry_name,
+    )
 
 # ---------------------- Globals (SSE) ---------------------- #
 active_users = 0
@@ -158,15 +161,64 @@ def _get_node_for_path(root: MutableMapping[str, Any], parts: Iterable[str]) -> 
     return node
 
 
-def _list_files_in_node(node: Any) -> List[str]:
-    """Return a list of filenames for either style (list or dict with '__files__')."""
+def normalise_file_entry(entry: Any) -> Dict[str, Any]:
+    """Return a consistent dict for legacy string and newer dict file entries."""
+    if isinstance(entry, dict):
+        item = dict(entry)
+        item['pdf'] = str(item.get('pdf') or '')
+        if not isinstance(item.get('jpgs'), list):
+            item['jpgs'] = []
+        item.setdefault('orientation', 'portrait')
+        return item
+    if isinstance(entry, str):
+        return {'pdf': entry, 'jpgs': [], 'orientation': 'portrait'}
+    return {'pdf': '', 'jpgs': [], 'orientation': 'portrait'}
+
+
+def file_entry_name(entry: Any) -> str:
+    return normalise_file_entry(entry)['pdf']
+
+
+def file_entry_jpgs(entry: Any) -> List[str]:
+    jpgs = normalise_file_entry(entry)['jpgs']
+    return [str(jpg) for jpg in jpgs]
+
+
+def _list_file_entries_in_node(node: Any) -> List[Any]:
+    """Return raw file entries for either style without changing their format."""
     if isinstance(node, list):
         return list(node)
     if isinstance(node, dict):
         files = node.get('__files__', [])
         if isinstance(files, list):
-            return files
+            return list(files)
     return []
+
+
+def _list_files_in_node(node: Any) -> List[str]:
+    """Return filenames for either style (strings or dicts in '__files__')."""
+    return [name for name in (file_entry_name(entry) for entry in _list_file_entries_in_node(node)) if name]
+
+
+def _find_file_entry(node: Any, filename: str) -> Optional[Any]:
+    for entry in _list_file_entries_in_node(node):
+        if file_entry_name(entry) == filename:
+            return entry
+    return None
+
+
+def _category_paths(node: Any, prefix: str = '') -> List[str]:
+    if not isinstance(node, dict):
+        return []
+
+    paths: List[str] = []
+    for key, value in node.items():
+        if key == '__files__':
+            continue
+        path = f'{prefix}/{key}' if prefix else key
+        paths.append(path)
+        paths.extend(_category_paths(value, path))
+    return paths
 
 
 def _delete_category_path(root: MutableMapping[str, Any], parts: Iterable[str]) -> bool:
@@ -353,7 +405,7 @@ def home():
 @app.route('/checklists')
 def checklist_index():
     data = get_checklists()
-    return render_template('checklists.html', categories=data.keys())
+    return render_template('checklists.html', categories=data)
 
 
 @app.route('/checklists/<path:category>')
@@ -369,7 +421,7 @@ def checklist_category(category):
     if isinstance(current, dict):
         return render_template('checklist_list.html', parent=category, subcategories=current)
     elif isinstance(current, list):
-        return render_template('checklist_view.html', parent=category, checklist=current)
+        return render_template('checklist_view.html', category=category, items=current)
     else:
         return f"Invalid checklist structure at: {category}", 500
 
@@ -378,8 +430,9 @@ def checklist_category(category):
 @app.route('/extracts')
 def extracts_index():
     extracts = get_extracts()
-    categories = {k: v for k, v in extracts.items() if k != '--'}
-    return render_template('extracts_index.html', extracts=categories)
+    categories = {k: v for k, v in extracts.items() if k not in {'--', '__files__'}}
+    root_files = _list_files_in_node(extracts)
+    return render_template('extracts_index.html', categories=categories, root_files=root_files)
 
 
 # Legacy single-level route kept for compatibility
@@ -397,12 +450,30 @@ def extracts_category(subpath):
     if node is None:
         return f"Extracts category not found: {subpath}", 404
 
+    entries = _list_file_entries_in_node(node)
     files = _list_files_in_node(node)
-    if len(files) == 1:
-        # Auto-open the single file in this category
+
+    subcategories = {}
+    if isinstance(node, dict):
+        subcategories = {k: v for k, v in node.items() if k != '__files__'}
+
+    if len(files) == 1 and not subcategories:
+        # Auto-open leaf categories that contain exactly one file.
         return redirect(url_for('extracts_viewer', category=subpath, filename=files[0]))
 
-    return render_template('extracts_category.html', category=subpath, files=files, node=node)
+    items = [
+        {'filename': file_entry_name(entry), 'label': _pdf_base(file_entry_name(entry))}
+        for entry in entries
+        if file_entry_name(entry)
+    ]
+    return render_template(
+        'extracts_category.html',
+        category=subpath,
+        files=files,
+        items=items,
+        node=node,
+        subcategories=subcategories,
+    )
 
 
 # Viewer by explicit filename (canonical)
@@ -414,15 +485,16 @@ def extracts_viewer(category, filename):
     if node is None:
         return f"Category not found: {category}", 404
 
-    files = _list_files_in_node(node)
-    if filename not in files:
+    entry = _find_file_entry(node, filename)
+    if entry is None:
         return f"File not found in category: {filename}", 404
 
     pdf_path = PDF_DIR / filename
     if not pdf_path.exists():
         return f"PDF not found on disk: {filename}", 404
 
-    jpgs = _jpg_names_for_pdf(filename)
+    item = normalise_file_entry(entry)
+    jpgs = file_entry_jpgs(entry) or _jpg_names_for_pdf(filename)
     if not jpgs:
         # Safety net: render if missing (normally done at upload time)
         jpgs = _ensure_jpgs_for_pdf(
@@ -433,7 +505,7 @@ def extracts_viewer(category, filename):
             max_width=SETTINGS.max_width,
         )
 
-    orientation = _detect_orientation_from_first_jpg(jpgs)
+    orientation = item.get('orientation') or _detect_orientation_from_first_jpg(jpgs)
 
     item = {
         'pdf': filename,
@@ -476,7 +548,12 @@ def send_pdf(filename):
 @login_required
 def admin_panel():
     extracts = get_extracts()
-    return render_template('admin_register.html', extracts=extracts)
+    return render_template(
+        'register_pdf.html',
+        extracts=extracts,
+        extract_paths=_category_paths(extracts),
+        checklist_paths=[],
+    )
 
 
 @app.route('/admin/upload_pdf', methods=['POST'])
@@ -485,7 +562,7 @@ def upload_pdf():
     """Register a PDF under a (possibly nested) category, convert to JPGs, update extracts.json."""
 
     file = request.files.get('file')
-    category = (request.form.get('category') or '').strip().strip('/')
+    category = (request.values.get('category') or '').strip().strip('/')
 
     if not file or not file.filename.lower().endswith('.pdf'):
         flash('Please choose a PDF file.', 'error')
@@ -529,12 +606,17 @@ def upload_pdf():
 
     node = _ensure_node_for_path(extracts, parts)
 
-    files = _list_files_in_node(node)
-    if safe_name not in files:
-        files.append(safe_name)
+    entries = _list_file_entries_in_node(node)
+    if safe_name not in _list_files_in_node(node):
+        jpgs = _jpg_names_for_pdf(safe_name)
+        entries.append({
+            'pdf': safe_name,
+            'jpgs': jpgs,
+            'orientation': _detect_orientation_from_first_jpg(jpgs),
+        })
     # Ensure back into node
     if isinstance(node, dict):
-        node['__files__'] = files
+        node['__files__'] = entries
 
     save_extracts(extracts)
 
@@ -548,8 +630,8 @@ def upload_pdf():
 @login_required
 def delete_pdf():
 
-    category = (request.form.get('category') or '').strip().strip('/')
-    filename = request.form.get('filename')
+    category = (request.values.get('category') or '').strip().strip('/')
+    filename = request.values.get('filename')
     if not filename:
         flash('Missing filename.', 'error')
         return redirect(url_for('admin_panel'))
@@ -562,17 +644,17 @@ def delete_pdf():
         flash('Category not found.', 'error')
         return redirect(url_for('admin_panel'))
 
-    files = _list_files_in_node(node)
-    if filename in files:
-        files.remove(filename)
+    entries = _list_file_entries_in_node(node)
+    remaining = [entry for entry in entries if file_entry_name(entry) != filename]
+    if len(remaining) != len(entries):
         if isinstance(node, dict):
-            node['__files__'] = files
+            node['__files__'] = remaining
         elif parts:
             # legacy -> convert and reassign on parent structure
             parent = extracts
             for part in parts[:-1]:
                 parent = parent.get(part, {})
-            parent[parts[-1]] = {'__files__': files}
+            parent[parts[-1]] = {'__files__': remaining}
         # Remove JPGs (keep original PDF unless you want it deleted too)
         for jpg in _jpg_names_for_pdf(filename):
             try:
@@ -592,20 +674,20 @@ def delete_pdf():
 @login_required
 def delete_category():
 
-    category = (request.form.get('category') or '').strip().strip('/')
+    category = (request.values.get('category') or '').strip().strip('/')
     parts = [unquote(p) for p in category.split('/') if p]
     extracts = get_extracts().copy()
 
     # Collect JPGs to remove for every file under this subtree
     def _collect_files(node, bag):
         if isinstance(node, dict):
-            bag.extend(node.get('__files__', []))
+            bag.extend(_list_files_in_node(node))
             for k, v in node.items():
                 if k == '__files__':
                     continue
                 _collect_files(v, bag)
         elif isinstance(node, list):
-            bag.extend(node)
+            bag.extend(_list_files_in_node(node))
 
     node = _get_node_for_path(extracts, parts)
     if node is None:
