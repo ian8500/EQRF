@@ -24,6 +24,7 @@ from app import (
     filtered_extract_tree,
     flatten_valid_extract_files,
     get_audit_log,
+    is_critical_checklist_line,
     metadata_status_label,
     normalise_file_entry,
     normalise_category_path,
@@ -111,7 +112,7 @@ def test_login_works_with_eqrf_password(client, monkeypatch):
         assert session['is_admin'] is True
     admin_response = client.get('/admin')
     assert admin_response.status_code == 200
-    assert b'Content management console' in admin_response.data
+    assert b'<h2 class="page-title">Admin</h2>' in admin_response.data
 
 
 def test_admin_link_hidden_when_logged_out(client):
@@ -162,16 +163,19 @@ def test_admin_audit_requires_login_and_displays_entries(client, monkeypatch):
     assert b'Visible audit entry' in response.data
 
 
-def test_admin_dashboard_shows_audit_log_link_and_governance_summary(client, monkeypatch):
+def test_admin_dashboard_shows_audit_log_link_and_sections(client, monkeypatch):
     monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
     client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
 
     response = client.get('/admin')
+    html = response.get_data(as_text=True)
 
     assert response.status_code == 200
-    assert b'Audit Log' in response.data
-    assert b'Extracts published' in response.data
-    assert b'Checklists published' in response.data
+    assert 'Audit Log' in html
+    assert 'Manage local PDF extracts, checklist content' not in html
+    for removed in ['Checklist count', 'Extract count', 'Quick Reference count', 'System posture', 'Extracts published', 'Checklists published']:
+        assert removed not in html
+    assert html.index('id="admin-extracts"') < html.index('id="admin-checklists"')
 
 
 def test_admin_edit_pages_require_login(client):
@@ -519,6 +523,52 @@ def test_checklist_cat_a_min_line_renders_with_critical_class(client, isolated_c
     assert response.status_code == 200
     assert b'cat-a-critical' in response.data
     assert b'[CAT A MIN] Runway occupancy confirmed' in response.data
+
+
+@pytest.mark.parametrize('line', [
+    'CAT A minimum',
+    '[CAT A minimum]',
+    '{CAT A MINIMUM}',
+    'CAT A MIN',
+    '[CAT A MIN]',
+    'CAT A ONLY',
+])
+def test_critical_checklist_helper_supports_minimum_variants(line):
+    assert is_critical_checklist_line(line)
+
+
+def test_admin_checklist_preview_js_uses_shared_critical_pattern(client, monkeypatch):
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+    client.post('/login', data={'password': 'test-pass', 'next': '/admin/checklists/new'})
+
+    response = client.get('/admin/checklists/new')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert r'CAT\s*A\s*(MIN|MINIMUM|ONLY)' in html
+    assert 'preview-row preview-cat-a critical-strip cat-a-critical' in html
+
+
+def test_critical_lines_are_not_removed_from_saved_checklist_items():
+    checklists = {}
+    lines = ['CAT A minimum', '[CAT A minimum]', 'CAT A MINIMUM', 'CAT A ONLY']
+
+    upsert_checklist(checklists, 'Tower/GMC/Critical', lines)
+
+    assert checklists['Tower']['GMC']['Critical'] == lines
+
+
+def test_public_checklist_renders_cat_a_minimum_variants_as_critical(client, isolated_content):
+    lines = ['CAT A minimum', '[CAT A minimum]', 'CAT A MINIMUM', 'CAT A ONLY']
+    isolated_content.checklists.update({'Tower': {'GMC': {'Critical': lines}}})
+
+    response = client.get('/checklists/Tower/GMC/Critical')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    for line in lines:
+        assert line in html
+    assert html.count('cat-a-critical') == len(lines)
 
 
 def test_extract_viewer_renders_breadcrumb_for_nested_category(client, isolated_content):

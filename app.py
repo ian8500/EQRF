@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import tempfile
 from collections import Counter
 from dataclasses import dataclass
@@ -672,8 +673,7 @@ def flatten_checklist_paths(checklists: Any) -> List[Dict[str, Any]]:
 
 
 def is_critical_checklist_line(line: Any) -> bool:
-    text = str(line or '').upper()
-    return 'CAT A ONLY' in text or 'CAT A MIN' in text
+    return bool(re.search(r'CAT\s*A\s*(MIN|MINIMUM|ONLY)', str(line or ''), re.IGNORECASE))
 
 
 def _flatten_all_checklist_paths(checklists: Any) -> List[Dict[str, Any]]:

@@ -88,7 +88,7 @@
       </div>
       <ul class="syntax-list">
         <li><code>--- Arrival ---</code> creates an amber section divider.</li>
-        <li><code>CAT A ONLY</code> displays as a critical red item.</li>
+        <li><code>CAT A MIN</code>, <code>CAT A MINIMUM</code>, and <code>CAT A ONLY</code> display as critical red items.</li>
         <li>Blank lines are ignored when saved.</li>
       </ul>
 
@@ -130,8 +130,7 @@ document.addEventListener('DOMContentLoaded', function () {
         item.className = 'preview-section';
         item.textContent = line.replace(/-/g, '').trim();
       } else {
-        const upperLine = line.toUpperCase();
-        item.className = (upperLine.includes('CAT A ONLY') || upperLine.includes('CAT A MIN')) ? 'preview-row preview-cat-a' : 'preview-row';
+        item.className = /CAT\s*A\s*(MIN|MINIMUM|ONLY)/i.test(line) ? 'preview-row preview-cat-a critical-strip cat-a-critical' : 'preview-row';
         item.textContent = line;
       }
       previewList.appendChild(item);

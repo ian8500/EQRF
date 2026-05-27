@@ -689,6 +689,106 @@ button[type="submit"]:hover {
   align-items: start;
 }
 
+.admin-console {
+  gap: 18px;
+}
+
+.admin-heading {
+  margin-bottom: 0;
+}
+
+.admin-section-nav {
+  position: sticky;
+  top: calc(var(--header-h, 0px) + 8px);
+  z-index: 12;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: rgba(6, 18, 29, 0.82);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.admin-section-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid rgba(124, 216, 255, 0.22);
+  border-radius: var(--radius);
+  color: var(--cyan);
+  background: rgba(51, 199, 255, 0.08);
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  font-weight: 850;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.admin-section-nav a:hover,
+.admin-section-nav a:focus-visible {
+  border-color: var(--cyan);
+  color: var(--text);
+}
+
+.admin-section {
+  display: grid;
+  gap: 14px;
+  padding: clamp(14px, 2vw, 20px);
+  border: 1px solid rgba(124, 216, 255, 0.18);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(13, 33, 51, 0.76), rgba(4, 13, 22, 0.9)),
+    var(--panel-solid);
+  box-shadow: var(--shadow);
+  scroll-margin-top: 112px;
+}
+
+.admin-details {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(124, 216, 255, 0.14);
+  border-radius: var(--radius);
+  background: rgba(4, 13, 22, 0.36);
+}
+
+.admin-details summary {
+  cursor: pointer;
+  color: var(--text);
+  font-family: var(--mono);
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.admin-details[open] summary {
+  margin-bottom: 12px;
+}
+
+.compact-form {
+  gap: 12px;
+}
+
+.compact-list {
+  gap: 8px;
+}
+
+.compact-list .admin-list-item {
+  padding: 12px;
+}
+
+.compact-tree {
+  gap: 10px;
+}
+
+.compact-health {
+  gap: 10px;
+}
+
 .admin-span {
   grid-column: 1 / -1;
 }
@@ -1307,6 +1407,12 @@ th {
 :root.theme-day .tree-panel {
   background: rgba(255, 255, 255, 0.86);
   box-shadow: 0 14px 34px rgba(24, 57, 76, 0.12);
+}
+
+:root.theme-day .admin-section,
+:root.theme-day .admin-details,
+:root.theme-day .admin-section-nav {
+  background: rgba(255, 255, 255, 0.86);
 }
 
 :root.theme-day .checklist-row label,
