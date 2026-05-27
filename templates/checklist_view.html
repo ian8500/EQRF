@@ -3,12 +3,29 @@
 
 {% block content %}
 <section class="checklist-panel">
+  {% if breadcrumbs %}
+    <nav class="breadcrumb" aria-label="Checklist breadcrumb">
+      {% for crumb in breadcrumbs %}
+        <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+      {% endfor %}
+    </nav>
+  {% endif %}
+
   <div id="checklist-sticky">
     <div>
       <p class="eyebrow">Active checklist</p>
       <h2 class="checklist-title">{{ category.replace('/', ' / ') }}</h2>
+      <div class="checklist-progress" id="checklist-progress">0 / 0 complete</div>
     </div>
-    <button class="btn danger" id="reset-checklist-top" type="button" onclick="resetChecklist()">Reset Checklist</button>
+    <div class="checklist-action-bar">
+      {% if parent_path %}
+        <a class="btn" href="{{ url_for('checklist_category', category=parent_path) }}">Back to Group</a>
+      {% else %}
+        <a class="btn" href="{{ url_for('checklist_index') }}">Back to Checklists</a>
+      {% endif %}
+      <button class="btn" type="button" onclick="clearCompletedChecklist()">Clear Completed</button>
+      <button class="btn danger" id="reset-checklist-top" type="button" onclick="resetChecklist()">Reset</button>
+    </div>
   </div>
 
   <ul class="checklist-list" id="checklist">
@@ -26,6 +43,13 @@
     {% endfor %}
   </ul>
 
-  <button class="btn danger" id="reset-checklist-bottom" type="button" onclick="resetChecklist()">Reset Checklist</button>
+  <div class="checklist-action-bar bottom">
+    {% if parent_path %}
+      <a class="btn" href="{{ url_for('checklist_category', category=parent_path) }}">Back to Group</a>
+    {% else %}
+      <a class="btn" href="{{ url_for('checklist_index') }}">Back to Checklists</a>
+    {% endif %}
+    <button class="btn danger" id="reset-checklist-bottom" type="button" onclick="resetChecklist()">Reset</button>
+  </div>
 </section>
 {% endblock %}

@@ -11,14 +11,31 @@
     </div>
   </div>
 
-  <div class="button-group">
-    {% for name, value in categories.items() %}
-      <a class="command-card" href="{{ url_for('checklist_category', category=name) }}">
-        <span class="tile-code">{{ 'Folder' if value is mapping else 'Checklist' }}</span>
-        <strong>{{ name }}</strong>
-        <span class="tile-meta">{{ 'Open nested checklist group' if value is mapping else 'Open operational checklist' }}</span>
-      </a>
-    {% endfor %}
-  </div>
+  {% if categories %}
+    <div class="content-summary-grid compact">
+      <article class="metric-card">
+        <span class="tile-code">Published checklists</span>
+        <strong>{{ checklist_count }}</strong>
+      </article>
+    </div>
+
+    <div class="button-group">
+      {% for name, value in categories.items() %}
+        <a class="command-card" href="{{ url_for('checklist_category', category=name) }}">
+          <span class="tile-code">{{ 'Folder' if value is mapping else 'Checklist' }}</span>
+          <strong>{{ name }}</strong>
+          <span class="tile-meta">{{ 'Open nested checklist group' if value is mapping else 'Open operational checklist' }}</span>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <section class="empty-state">
+      <p class="eyebrow">No published checklists</p>
+      <h3>No published EQRF checklists available.</h3>
+      {% if session.get('logged_in') %}
+        <a class="btn success" href="{{ url_for('admin_checklists') }}">Open Checklist Admin</a>
+      {% endif %}
+    </section>
+  {% endif %}
 </section>
 {% endblock %}

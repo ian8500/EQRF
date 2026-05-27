@@ -35,7 +35,16 @@ function saveChecklistState() {
     } else {
       label.classList.remove("checked");
     }
+    updateChecklistProgress();
     saveChecklistState();
+  }
+
+  function updateChecklistProgress() {
+    const checklist = document.querySelectorAll('#checklist input[type="checkbox"]');
+    const progress = document.getElementById("checklist-progress");
+    if (!progress || !checklist.length) return;
+    const complete = Array.from(checklist).filter(cb => cb.checked).length;
+    progress.textContent = `${complete} / ${checklist.length} complete`;
   }
   
   // Reset checklist and clear stored state
@@ -47,6 +56,18 @@ function saveChecklistState() {
       if (label) label.classList.remove("checked");
     });
     localStorage.removeItem(window.location.pathname);
+    updateChecklistProgress();
+  }
+
+  function clearCompletedChecklist() {
+    const checked = document.querySelectorAll('#checklist input[type="checkbox"]:checked');
+    checked.forEach(cb => {
+      cb.checked = false;
+      const label = cb.parentElement;
+      if (label) label.classList.remove("checked");
+    });
+    saveChecklistState();
+    updateChecklistProgress();
   }
   
   
@@ -100,6 +121,7 @@ function saveChecklistState() {
       highlightTicked(cb);
       cb.addEventListener("change", () => highlightTicked(cb));
     });
+    updateChecklistProgress();
   
     // Theme
     loadTheme();

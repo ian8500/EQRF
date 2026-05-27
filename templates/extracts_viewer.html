@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% set page_title = item.pdf[:-4] if item.pdf.lower().endswith('.pdf') else item.pdf %}
+{% set page_title = item.title or (item.pdf[:-4] if item.pdf.lower().endswith('.pdf') else item.pdf) %}
 {% block title %}{{ page_title }}{% endblock %}
 
 {% block content %}
@@ -8,12 +8,34 @@
   <div>
     <p class="eyebrow">Document viewer</p>
     <h2 class="extract-title">{{ page_title }}</h2>
+    <div class="document-status-row">
+      <span class="status-chip ok">LOCAL PDF</span>
+      <span class="status-chip ok">RENDERED</span>
+      <span class="status-chip">{{ item.orientation|upper }}</span>
+      <span class="status-chip">{{ item.page_count }} page{{ '' if item.page_count == 1 else 's' }}</span>
+    </div>
   </div>
 </div>
 
+{% if breadcrumbs %}
+  <nav class="breadcrumb" aria-label="Extract breadcrumb">
+    {% for crumb in breadcrumbs %}
+      <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+    {% endfor %}
+  </nav>
+{% endif %}
+
 <div id="toolbar" class="sticky-toolbar">
+  {% if parent_path == '--' %}
+    <a class="btn" href="{{ url_for('extracts_index') }}">Back to Extracts</a>
+  {% else %}
+    <a class="btn" href="{{ url_for('extracts_category', subpath=parent_path) }}">Back to Category</a>
+  {% endif %}
+  <span class="status-chip">{{ item.page_count }} page{{ '' if item.page_count == 1 else 's' }}</span>
   <button type="button" onclick="zoomOut()" title="Zoom out">Zoom -</button>
   <button type="button" onclick="zoomIn()" title="Zoom in">Zoom +</button>
+  <button type="button" onclick="fitWidth()" title="Fit document width">Fit Width</button>
+  <button type="button" onclick="fitHeight()" title="Fit document height">Fit Height</button>
   <button type="button" onclick="rotate()" title="Rotate document">Rotate</button>
   <button type="button" onclick="fitToPage()" title="Reset view">Reset View</button>
 </div>
@@ -32,24 +54,6 @@
     {% endfor %}
   </div>
 </div>
-
-<style>
-  #images-container {
-    width: 100%;
-  }
-
-  .extract-image {
-    display: block;
-    max-width: 100%;
-    height: auto;
-    margin: 0 auto 16px auto;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-    transform-origin: top center;
-    content-visibility: auto;
-    contain: layout style paint;
-    contain-intrinsic-size: 1550px 1100px;
-  }
-</style>
 
 <script>
   let viewerZoom = 1;
@@ -73,6 +77,26 @@
 
   function rotate() {
     viewerRotation = (viewerRotation + 90) % 360;
+    applyViewerTransform();
+  }
+
+  function firstImage() {
+    return document.querySelector('.extract-image');
+  }
+
+  function fitWidth() {
+    const img = firstImage();
+    const scroller = document.querySelector('.viewer-scroll');
+    if (!img || !scroller || !img.naturalWidth) return;
+    viewerZoom = Math.max(0.3, Math.min(3, (scroller.clientWidth - 24) / img.naturalWidth));
+    applyViewerTransform();
+  }
+
+  function fitHeight() {
+    const img = firstImage();
+    if (!img || !img.naturalHeight) return;
+    const available = Math.max(320, window.innerHeight - 180);
+    viewerZoom = Math.max(0.3, Math.min(3, available / img.naturalHeight));
     applyViewerTransform();
   }
 

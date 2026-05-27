@@ -1,5 +1,9 @@
+import re
+from types import SimpleNamespace
+
 import pytest
 
+import app as app_module
 from app import (
     JPG_DIR,
     app,
@@ -11,6 +15,9 @@ from app import (
     find_missing_jpgs,
     find_missing_pdfs,
     find_orphan_jpgs,
+    filtered_checklist_tree,
+    filtered_extract_tree,
+    flatten_valid_extract_files,
     normalise_category_path,
     safe_path_parts,
     upsert_checklist,
@@ -23,6 +30,36 @@ def client():
     app.config.update(TESTING=True)
     with app.test_client() as test_client:
         yield test_client
+
+
+@pytest.fixture()
+def isolated_content(monkeypatch, tmp_path):
+    pdf_dir = tmp_path / 'pdfs'
+    jpg_dir = tmp_path / 'jpgs'
+    pdf_dir.mkdir()
+    jpg_dir.mkdir()
+    checklists = {}
+    extracts = {}
+
+    monkeypatch.setattr(app_module, 'PDF_DIR', pdf_dir)
+    monkeypatch.setattr(app_module, 'JPG_DIR', jpg_dir)
+    monkeypatch.setattr(app_module, 'get_checklists', lambda: checklists)
+    monkeypatch.setattr(app_module, 'get_extracts', lambda: extracts)
+
+    def publish_pdf(filename, jpgs=None):
+        (pdf_dir / filename).write_bytes(b'%PDF-1.4\n% test\n')
+        names = jpgs or [filename.replace('.pdf', '_page1.jpg')]
+        for jpg in names:
+            (jpg_dir / jpg).write_bytes(b'jpg')
+        return names
+
+    return SimpleNamespace(
+        pdf_dir=pdf_dir,
+        jpg_dir=jpg_dir,
+        checklists=checklists,
+        extracts=extracts,
+        publish_pdf=publish_pdf,
+    )
 
 
 def test_home_page_loads(client):
@@ -148,3 +185,129 @@ def test_extract_health_helpers_detect_missing_assets_and_orphans(tmp_path):
     (tmp_path / 'Missing_page1.jpg').write_bytes(b'referenced')
     (tmp_path / 'orphan.jpg').write_bytes(b'orphan')
     assert find_orphan_jpgs(extracts, jpg_dir=tmp_path) == ['orphan.jpg']
+
+
+def test_empty_checklist_folders_are_not_shown(client, isolated_content):
+    isolated_content.checklists.update({
+        'Empty': {'Nothing': []},
+        'Tower': {'Runway 05': ['Line up']},
+    })
+
+    response = client.get('/checklists')
+
+    assert response.status_code == 200
+    assert b'Tower' in response.data
+    assert b'Empty' not in response.data
+    assert filtered_checklist_tree(isolated_content.checklists) == {'Tower': {'Runway 05': ['Line up']}}
+
+
+def test_home_hides_checklists_card_when_no_valid_checklists(client, isolated_content):
+    isolated_content.checklists.update({'Empty': {'Nothing': []}})
+
+    response = client.get('/')
+
+    assert response.status_code == 200
+    assert b'<strong>Checklists</strong>' not in response.data
+    assert b'No active EQRF content is currently published.' in response.data
+
+
+def test_empty_extract_folders_and_missing_assets_are_hidden(client, isolated_content):
+    isolated_content.extracts.update({
+        'Empty': {},
+        'AIR': {'__files__': ['Missing.pdf']},
+        'GROUND': {'__files__': [{'pdf': 'NoJpg.pdf', 'jpgs': ['NoJpg_page1.jpg']}]},
+    })
+    (isolated_content.pdf_dir / 'NoJpg.pdf').write_bytes(b'%PDF-1.4\n')
+
+    response = client.get('/extracts')
+
+    assert response.status_code == 200
+    assert b'No published EQRF extracts available.' in response.data
+    assert b'Empty' not in response.data
+    assert b'Missing.pdf' not in response.data
+    assert b'NoJpg.pdf' not in response.data
+    assert filtered_extract_tree(isolated_content.extracts) == {}
+
+
+def test_valid_string_and_dict_extract_entries_show(client, isolated_content):
+    isolated_content.publish_pdf('ValidString.pdf')
+    isolated_content.publish_pdf('ValidDict.pdf', ['ValidDict_page1.jpg'])
+    isolated_content.extracts.update({
+        'AIR': {
+            '__files__': [
+                'ValidString.pdf',
+                {
+                    'pdf': 'ValidDict.pdf',
+                    'title': 'Valid Dict',
+                    'jpgs': ['ValidDict_page1.jpg'],
+                    'orientation': 'landscape',
+                },
+            ],
+        },
+    })
+
+    response = client.get('/extracts/AIR')
+
+    assert response.status_code == 200
+    assert b'ValidString' in response.data
+    assert b'Valid Dict' in response.data
+    assert len(flatten_valid_extract_files(isolated_content.extracts)) == 2
+
+
+def test_home_hides_extracts_card_when_no_valid_extracts(client, isolated_content):
+    isolated_content.extracts.update({'AIR': {'__files__': ['Missing.pdf']}})
+
+    response = client.get('/')
+
+    assert response.status_code == 200
+    assert b'<strong>Extracts</strong>' not in response.data
+
+
+def test_invalid_checklist_path_returns_friendly_unavailable_page(client, isolated_content):
+    response = client.get('/checklists/Nope')
+
+    assert response.status_code == 404
+    assert b'Checklist unavailable' in response.data
+    assert b'Back to Checklists' in response.data
+
+
+def test_invalid_extract_path_returns_friendly_unavailable_page(client, isolated_content):
+    response = client.get('/extracts/Nope')
+
+    assert response.status_code == 404
+    assert b'Extract category unavailable' in response.data
+    assert b'Back to Extracts' in response.data
+
+
+def test_viewer_rejects_missing_local_assets_gracefully(client, isolated_content):
+    isolated_content.extracts.update({'AIR': {'__files__': ['Missing.pdf']}})
+
+    response = client.get('/viewer/AIR/Missing.pdf')
+
+    assert response.status_code == 404
+    assert b'Extract unavailable' in response.data
+    assert b'local source PDF is missing' in response.data
+
+
+def test_public_pages_do_not_emit_external_or_invalid_content_links(client, isolated_content):
+    isolated_content.checklists.update({
+        'Tower': {'Runway 05': ['Line up']},
+        'Empty': {'Nothing': []},
+    })
+    isolated_content.publish_pdf('Valid.pdf')
+    isolated_content.extracts.update({
+        'AIR': {'__files__': ['Valid.pdf', 'Missing.pdf']},
+        'EmptyExtract': {},
+    })
+
+    pages = ['/', '/checklists', '/checklists/Tower', '/extracts', '/extracts/AIR']
+    for path in pages:
+        response = client.get(path)
+        assert response.status_code in {200, 302}
+        html = response.get_data(as_text=True)
+        assert 'http://' not in html
+        assert 'https://' not in html
+        hrefs = re.findall(r'href="([^"]+)"', html)
+        assert all('Missing.pdf' not in href for href in hrefs)
+        assert all('/checklists/Empty' not in href for href in hrefs)
+        assert all('/extracts/EmptyExtract' not in href for href in hrefs)

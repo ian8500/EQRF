@@ -246,6 +246,31 @@ def _find_file_entry(node: Any, filename: str) -> Optional[Any]:
     return None
 
 
+def is_valid_checklist_node(node: Any) -> bool:
+    return isinstance(node, list) and any(str(line).strip() for line in node)
+
+
+def checklist_group_has_content(node: Any) -> bool:
+    if is_valid_checklist_node(node):
+        return True
+    if isinstance(node, dict):
+        return any(checklist_group_has_content(child) for child in node.values())
+    return False
+
+
+def filtered_checklist_tree(node: Any) -> Any:
+    if is_valid_checklist_node(node):
+        return [str(line).strip() for line in node if str(line).strip()]
+    if isinstance(node, dict):
+        filtered: Dict[str, Any] = {}
+        for key, value in node.items():
+            child = filtered_checklist_tree(value)
+            if checklist_group_has_content(child):
+                filtered[key] = child
+        return filtered
+    return None
+
+
 def flatten_extract_categories(extracts: Any) -> List[Dict[str, Any]]:
     categories: List[Dict[str, Any]] = []
 
@@ -302,15 +327,128 @@ def flatten_extract_files(extracts: Any) -> List[Dict[str, Any]]:
     return files
 
 
+def extract_entry_is_valid(entry: Any) -> bool:
+    filename = file_entry_name(entry)
+    return bool(filename and local_pdf_exists(filename) and get_valid_jpgs_for_pdf(filename, file_entry_jpgs(entry)))
+
+
+def extract_group_has_content(node: Any) -> bool:
+    if isinstance(node, list):
+        return any(extract_entry_is_valid(entry) for entry in node)
+    if isinstance(node, dict):
+        if any(extract_entry_is_valid(entry) for entry in _list_file_entries_in_node(node)):
+            return True
+        return any(extract_group_has_content(child) for key, child in node.items() if key != '__files__')
+    return False
+
+
+def filtered_extract_tree(node: Any) -> Any:
+    if isinstance(node, list):
+        entries = [entry for entry in node if extract_entry_is_valid(entry)]
+        return entries if entries else None
+    if isinstance(node, dict):
+        filtered: Dict[str, Any] = {}
+        files = [entry for entry in _list_file_entries_in_node(node) if extract_entry_is_valid(entry)]
+        if files:
+            filtered['__files__'] = files
+        for key, value in node.items():
+            if key == '__files__':
+                continue
+            child = filtered_extract_tree(value)
+            if extract_group_has_content(child):
+                filtered[key] = child
+        return filtered
+    return None
+
+
+def flatten_extract_paths(node: Any) -> List[str]:
+    paths: List[str] = []
+
+    def visit(current: Any, prefix: str) -> None:
+        if not isinstance(current, dict):
+            return
+        if prefix and extract_group_has_content(current):
+            paths.append(prefix)
+        for key, value in current.items():
+            if key == '__files__':
+                continue
+            visit(value, f'{prefix}/{key}' if prefix else key)
+
+    visit(node, '')
+    return paths
+
+
+def flatten_valid_extract_files(node: Any) -> List[Dict[str, Any]]:
+    files: List[Dict[str, Any]] = []
+
+    def visit(current: Any, category: str) -> None:
+        if isinstance(current, list):
+            for entry in current:
+                if extract_entry_is_valid(entry):
+                    filename = file_entry_name(entry)
+                    files.append({
+                        'category': category,
+                        'entry': entry,
+                        'filename': filename,
+                        'title': get_display_title_for_pdf(entry),
+                        'jpgs': get_valid_jpgs_for_pdf(filename, file_entry_jpgs(entry)),
+                        'metadata': normalise_file_entry(entry),
+                    })
+            return
+        if not isinstance(current, dict):
+            return
+        for entry in _list_file_entries_in_node(current):
+            if extract_entry_is_valid(entry):
+                filename = file_entry_name(entry)
+                files.append({
+                    'category': category,
+                    'entry': entry,
+                    'filename': filename,
+                    'title': get_display_title_for_pdf(entry),
+                    'jpgs': get_valid_jpgs_for_pdf(filename, file_entry_jpgs(entry)),
+                    'metadata': normalise_file_entry(entry),
+                })
+        for key, value in current.items():
+            if key == '__files__':
+                continue
+            visit(value, f'{category}/{key}' if category else key)
+
+    visit(node, '')
+    return files
+
+
 def flatten_checklist_paths(checklists: Any) -> List[Dict[str, Any]]:
     paths: List[Dict[str, Any]] = []
 
     def visit(node: Any, path: str) -> None:
+        if is_valid_checklist_node(node):
+            cleaned = [str(line).strip() for line in node if str(line).strip()]
+            paths.append({
+                'path': path,
+                'items': cleaned,
+                'item_count': len(cleaned),
+            })
+        elif isinstance(node, dict):
+            for key, value in node.items():
+                visit(value, f'{path}/{key}' if path else key)
+
+    visit(checklists, '')
+    return paths
+
+
+def _flatten_all_checklist_paths(checklists: Any) -> List[Dict[str, Any]]:
+    paths: List[Dict[str, Any]] = []
+
+    def visit(node: Any, path: str) -> None:
         if isinstance(node, list):
+            item_count = len([line for line in node if str(line).strip()])
             paths.append({
                 'path': path,
                 'items': node,
-                'item_count': len([line for line in node if str(line).strip()]),
+                'item_count': item_count,
+                'public_visible': item_count > 0,
+                'visibility_label': 'Published' if item_count > 0 else 'Hidden: empty checklist',
+                'visibility_state': 'published' if item_count > 0 else 'hidden',
             })
         elif isinstance(node, dict):
             for key, value in node.items():
@@ -591,6 +729,71 @@ def _jpg_names_for_pdf(filename: str) -> List[str]:
     return [path.name for path in _jpg_glob_for_pdf(filename)]
 
 
+def local_pdf_exists(filename: str) -> bool:
+    return bool(filename and (PDF_DIR / filename).is_file())
+
+
+def get_valid_jpgs_for_pdf(filename: str, metadata_jpgs: Optional[Iterable[str]] = None) -> List[str]:
+    valid: List[str] = []
+    seen = set()
+    for jpg in metadata_jpgs or []:
+        jpg_name = str(jpg)
+        if jpg_name and jpg_name not in seen and (JPG_DIR / jpg_name).is_file():
+            valid.append(jpg_name)
+            seen.add(jpg_name)
+
+    if valid:
+        return valid
+
+    for jpg_name in _jpg_names_for_pdf(filename):
+        if jpg_name not in seen and (JPG_DIR / jpg_name).is_file():
+            valid.append(jpg_name)
+            seen.add(jpg_name)
+    return valid
+
+
+def local_jpgs_exist_for_pdf(filename: str) -> bool:
+    return bool(get_valid_jpgs_for_pdf(filename))
+
+
+def get_display_title_for_pdf(entry: Any) -> str:
+    item = normalise_file_entry(entry)
+    title = str(item.get('title') or '').strip()
+    if title:
+        return title
+    filename = item.get('pdf', '')
+    return _pdf_base(filename) if filename else 'Untitled PDF'
+
+
+def public_extract_item(entry: Any, category: str) -> Optional[Dict[str, Any]]:
+    if not extract_entry_is_valid(entry):
+        return None
+    filename = file_entry_name(entry)
+    metadata = normalise_file_entry(entry)
+    jpgs = get_valid_jpgs_for_pdf(filename, metadata.get('jpgs', []))
+    orientation = metadata.get('orientation') or _detect_orientation_from_first_jpg(jpgs)
+    return {
+        'category': category,
+        'entry': entry,
+        'filename': filename,
+        'label': get_display_title_for_pdf(entry),
+        'title': get_display_title_for_pdf(entry),
+        'jpgs': jpgs,
+        'page_count': int(metadata.get('page_count') or len(jpgs)),
+        'orientation': orientation,
+        'metadata': metadata,
+    }
+
+
+def public_extract_items_for_node(node: Any, category: str) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    for entry in _list_file_entries_in_node(node):
+        item = public_extract_item(entry, category)
+        if item:
+            items.append(item)
+    return items
+
+
 def _ensure_jpgs_for_pdf(
     pdf_path: Path,
     filename: str,
@@ -710,7 +913,8 @@ def _admin_context() -> Dict[str, Any]:
     checklists = get_checklists()
     extract_categories = flatten_extract_categories(extracts)
     extract_files = flatten_extract_files(extracts)
-    checklist_paths = flatten_checklist_paths(checklists)
+    checklist_paths = _flatten_all_checklist_paths(checklists)
+    empty_checklists = [item for item in checklist_paths if not item['public_visible']]
     extract_issues = find_extract_health_issues(extracts)
     invalid_checklists = _find_invalid_checklist_structures(checklists)
     orphan_jpgs = find_orphan_jpgs(extracts)
@@ -731,6 +935,12 @@ def _admin_context() -> Dict[str, Any]:
         'category': issue['path'],
         'message': issue['message'],
     } for issue in invalid_checklists)
+    all_issues.extend({
+        'type': 'empty_checklist',
+        'severity': 'info',
+        'category': item['path'],
+        'message': f"Empty checklist hidden from public navigation: {item['path']}",
+    } for item in empty_checklists)
 
     lookup = _issue_lookup(extract_issues)
     category_rows: List[Dict[str, Any]] = []
@@ -741,15 +951,33 @@ def _admin_context() -> Dict[str, Any]:
             filename = item.get('pdf', '')
             if not filename:
                 continue
+            valid_jpgs = get_valid_jpgs_for_pdf(filename, item.get('jpgs', []))
+            public_visible = extract_entry_is_valid(entry)
+            if public_visible:
+                visibility_label = 'Published'
+                visibility_state = 'published'
+            elif not local_pdf_exists(filename):
+                visibility_label = 'Hidden: missing PDF'
+                visibility_state = 'missing-pdf'
+            elif not valid_jpgs:
+                visibility_label = 'Hidden: missing JPG'
+                visibility_state = 'missing-jpg'
+            else:
+                visibility_label = 'Hidden: invalid metadata'
+                visibility_state = 'hidden'
             file_issues = lookup.get((category['path'], filename), [])
             files.append({
                 'filename': filename,
                 'title': item.get('title') or _pdf_base(filename),
                 'metadata': item,
                 'jpgs': file_entry_jpgs(entry),
+                'valid_jpgs': valid_jpgs,
                 'issue_count': len(file_issues),
                 'issues': file_issues,
                 'pdf_exists': (PDF_DIR / filename).exists(),
+                'public_visible': public_visible,
+                'visibility_label': visibility_label,
+                'visibility_state': visibility_state,
             })
         category_rows.append({**category, 'files': files})
 
@@ -774,6 +1002,7 @@ def _admin_context() -> Dict[str, Any]:
             'orphan_jpgs': orphan_jpgs,
             'empty_categories': [category for category in extract_categories if category['empty']],
             'invalid_checklists': invalid_checklists,
+            'empty_checklists': empty_checklists,
             'duplicate_pdfs': duplicate_pdfs,
             'json_status': _json_status(),
         },
@@ -812,6 +1041,29 @@ def trigger_client_refresh() -> None:
     """Signal all connected browsers to refresh via Server Sent Events."""
 
     refresh_event.set()
+
+
+def _breadcrumb_items(root_label: str, root_endpoint: str, path: str, endpoint: str, param_name: str) -> List[Dict[str, str]]:
+    items = [{'label': root_label, 'url': url_for(root_endpoint)}]
+    parts = safe_path_parts(path)
+    current: List[str] = []
+    for part in parts:
+        current.append(part)
+        items.append({
+            'label': part,
+            'url': url_for(endpoint, **{param_name: '/'.join(current)}),
+        })
+    return items
+
+
+def _unavailable(title: str, message: str, back_label: str, back_endpoint: str, status: int = 404):
+    return render_template(
+        'unavailable.html',
+        title=title,
+        message=message,
+        back_label=back_label,
+        back_url=url_for(back_endpoint),
+    ), status
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -875,48 +1127,84 @@ def trigger_refresh():
 
 @app.route('/')
 def home():
-    extracts = get_extracts()
-    # Home quick refs stored either as list at '--', or dict {'__files__':[...]} depending on historical format
-    home_node = extracts.get('--', [])
-    if isinstance(home_node, dict):
-        home_pdfs = home_node.get('__files__', [])
-    else:
-        home_pdfs = home_node
-    return render_template('home.html', home_pdfs=home_pdfs)
+    checklist_tree = filtered_checklist_tree(get_checklists()) or {}
+    extract_tree = filtered_extract_tree(get_extracts()) or {}
+    non_home_extracts = {
+        key: value for key, value in extract_tree.items()
+        if key not in {'--', '__files__'}
+    } if isinstance(extract_tree, dict) else {}
+    home_node = _get_node_for_path(extract_tree, ['--']) if isinstance(extract_tree, dict) else None
+    home_pdfs = public_extract_items_for_node(home_node, '--')
+    checklist_count = len(flatten_checklist_paths(checklist_tree))
+    extract_count = len(flatten_valid_extract_files(non_home_extracts))
+    return render_template(
+        'home.html',
+        home_pdfs=home_pdfs,
+        has_checklists=checklist_group_has_content(checklist_tree),
+        has_extracts=extract_group_has_content(non_home_extracts),
+        checklist_count=checklist_count,
+        extract_count=extract_count,
+        quick_ref_count=len(home_pdfs),
+    )
 
 # ---------------------- Checklists ---------------------- #
 
 @app.route('/checklists')
 def checklist_index():
-    data = get_checklists()
-    return render_template('checklists.html', categories=data)
+    data = filtered_checklist_tree(get_checklists()) or {}
+    return render_template(
+        'checklists.html',
+        categories=data,
+        checklist_count=len(flatten_checklist_paths(data)),
+    )
 
 
 @app.route('/checklists/<path:category>')
 def checklist_category(category):
-    data = get_checklists()
-    parts = [unquote(p) for p in category.split('/') if p]
-    current = data
-    for part in parts:
-        if isinstance(current, dict) and part in current:
-            current = current[part]
-        else:
-            return f"Checklist category not found: {part}", 404
-    if isinstance(current, dict):
-        return render_template('checklist_list.html', parent=category, subcategories=current)
-    elif isinstance(current, list):
-        return render_template('checklist_view.html', category=category, items=current)
-    else:
-        return f"Invalid checklist structure at: {category}", 500
+    try:
+        normalised = normalise_category_path(category)
+    except ValueError:
+        return _unavailable('Checklist unavailable', 'This checklist path is not available in the published EQRF set.', 'Back to Checklists', 'checklist_index')
+
+    data = filtered_checklist_tree(get_checklists()) or {}
+    current = _get_node_for_path(data, safe_path_parts(normalised))
+    if isinstance(current, dict) and checklist_group_has_content(current):
+        return render_template(
+            'checklist_list.html',
+            parent=normalised,
+            subcategories=current,
+            breadcrumbs=_breadcrumb_items('Checklists', 'checklist_index', normalised, 'checklist_category', 'category'),
+            checklist_count=len(flatten_checklist_paths(current)),
+        )
+    if is_valid_checklist_node(current):
+        parts = safe_path_parts(normalised)
+        parent_path = '/'.join(parts[:-1]) if len(parts) > 1 else ''
+        return render_template(
+            'checklist_view.html',
+            category=normalised,
+            items=current,
+            breadcrumbs=_breadcrumb_items('Checklists', 'checklist_index', normalised, 'checklist_category', 'category'),
+            parent_path=parent_path,
+        )
+    return _unavailable('Checklist unavailable', 'This checklist is not currently published in the local EQRF content set.', 'Back to Checklists', 'checklist_index')
 
 # ---------------------- Extracts (categories & viewer) ---------------------- #
 
 @app.route('/extracts')
 def extracts_index():
-    extracts = get_extracts()
-    categories = {k: v for k, v in extracts.items() if k not in {'--', '__files__'}}
-    root_files = _list_files_in_node(extracts)
-    return render_template('extracts_index.html', categories=categories, root_files=root_files)
+    extracts = filtered_extract_tree(get_extracts()) or {}
+    categories = {
+        k: v for k, v in extracts.items()
+        if k not in {'--', '__files__'} and extract_group_has_content(v)
+    } if isinstance(extracts, dict) else {}
+    home_node = _get_node_for_path(extracts, ['--']) if isinstance(extracts, dict) else None
+    root_files = public_extract_items_for_node(home_node, '--')
+    return render_template(
+        'extracts_index.html',
+        categories=categories,
+        root_files=root_files,
+        extract_count=len(flatten_valid_extract_files(categories)) + len(root_files),
+    )
 
 
 # Legacy single-level route kept for compatibility
@@ -928,35 +1216,33 @@ def extracts_category_legacy(category):
 # Preferred nested route
 @app.route('/extracts/<path:subpath>')
 def extracts_category(subpath):
-    extracts = get_extracts()
-    parts = [unquote(p) for p in (subpath or '').split('/') if p]
-    node = _get_node_for_path(extracts, parts)
-    if node is None:
-        return f"Extracts category not found: {subpath}", 404
+    try:
+        normalised = normalise_category_path(subpath)
+    except ValueError:
+        return _unavailable('Extract category unavailable', 'This extract category is not available in the published EQRF set.', 'Back to Extracts', 'extracts_index')
 
-    entries = _list_file_entries_in_node(node)
-    files = _list_files_in_node(node)
+    extracts = filtered_extract_tree(get_extracts()) or {}
+    node = _get_node_for_path(extracts, safe_path_parts(normalised))
+    if not extract_group_has_content(node):
+        return _unavailable('Extract category unavailable', 'This extract category has no valid local EQRF documents published.', 'Back to Extracts', 'extracts_index')
 
-    subcategories = {}
-    if isinstance(node, dict):
-        subcategories = {k: v for k, v in node.items() if k != '__files__'}
+    subcategories = {
+        k: v for k, v in node.items()
+        if k != '__files__' and extract_group_has_content(v)
+    } if isinstance(node, dict) else {}
 
-    if len(files) == 1 and not subcategories:
+    items = public_extract_items_for_node(node, normalised)
+    if len(items) == 1 and not subcategories:
         # Auto-open leaf categories that contain exactly one file.
-        return redirect(url_for('extracts_viewer', category=subpath, filename=files[0]))
+        return redirect(url_for('extracts_viewer', category=normalised, filename=items[0]['filename']))
 
-    items = [
-        {'filename': file_entry_name(entry), 'label': _pdf_base(file_entry_name(entry))}
-        for entry in entries
-        if file_entry_name(entry)
-    ]
     return render_template(
         'extracts_category.html',
-        category=subpath,
-        files=files,
+        category=normalised,
         items=items,
         node=node,
         subcategories=subcategories,
+        breadcrumbs=_breadcrumb_items('Extracts', 'extracts_index', normalised, 'extracts_category', 'subpath'),
     )
 
 
@@ -964,56 +1250,74 @@ def extracts_category(subpath):
 @app.route('/viewer/<path:category>/<path:filename>')
 def extracts_viewer(category, filename):
     extracts = get_extracts()
-    parts = [unquote(p) for p in (category or '').split('/') if p]
-    node = _get_node_for_path(extracts, parts)
+    try:
+        normalised_category = normalise_category_path(category)
+    except ValueError:
+        return _unavailable('Extract unavailable', 'This extract path is not available in the published EQRF set.', 'Back to Extracts', 'extracts_index')
+
+    node = _get_node_for_path(extracts, safe_path_parts(normalised_category))
     if node is None:
-        return f"Category not found: {category}", 404
+        return _unavailable('Extract unavailable', 'This extract category is not registered in local EQRF data.', 'Back to Extracts', 'extracts_index')
 
     entry = _find_file_entry(node, filename)
     if entry is None:
-        return f"File not found in category: {filename}", 404
+        return _unavailable('Extract unavailable', 'This PDF is not registered in the selected EQRF category.', 'Back to Extracts', 'extracts_index')
 
     pdf_path = PDF_DIR / filename
     if not pdf_path.exists():
-        return f"PDF not found on disk: {filename}", 404
+        return _unavailable('Extract unavailable', 'The local source PDF is missing and must be repaired in Admin.', 'Back to Extracts', 'extracts_index')
 
     item = normalise_file_entry(entry)
-    jpgs = file_entry_jpgs(entry) or _jpg_names_for_pdf(filename)
+    jpgs = get_valid_jpgs_for_pdf(filename, file_entry_jpgs(entry))
     if not jpgs:
         # Safety net: render if missing (normally done at upload time)
-        jpgs = _ensure_jpgs_for_pdf(
-            pdf_path,
-            filename,
-            dpi=SETTINGS.pdf_dpi,
-            quality=SETTINGS.jpeg_quality,
-            max_width=SETTINGS.max_width,
-        )
+        try:
+            jpgs = _ensure_jpgs_for_pdf(
+                pdf_path,
+                filename,
+                dpi=SETTINGS.pdf_dpi,
+                quality=SETTINGS.jpeg_quality,
+                max_width=SETTINGS.max_width,
+            )
+        except Exception:
+            return _unavailable('Extract unavailable', 'The rendered JPG pages are missing and could not be generated locally.', 'Back to Extracts', 'extracts_index')
+    jpgs = get_valid_jpgs_for_pdf(filename, jpgs)
+    if not jpgs:
+        return _unavailable('Extract unavailable', 'The rendered JPG pages are missing and must be regenerated in Admin.', 'Back to Extracts', 'extracts_index')
 
     orientation = item.get('orientation') or _detect_orientation_from_first_jpg(jpgs)
 
     item = {
         'pdf': filename,
+        'title': get_display_title_for_pdf(entry),
         'jpgs': jpgs,
         'orientation': orientation,
+        'page_count': int(item.get('page_count') or len(jpgs)),
+        'category': normalised_category,
     }
-    return render_template('extracts_viewer.html', item=item)
+    parts = safe_path_parts(normalised_category)
+    parent_path = normalised_category
+    return render_template(
+        'extracts_viewer.html',
+        item=item,
+        breadcrumbs=_breadcrumb_items('Extracts', 'extracts_index', normalised_category, 'extracts_category', 'subpath'),
+        parent_path=parent_path,
+    )
 
 
 # Legacy viewer by index, e.g. /viewer/AIR/SID/2  (1-based index)
 @app.route('/viewer/<path:category>/<int:index>')
 def extracts_viewer_by_index(category, index):
-    extracts = get_extracts()
-    parts = [unquote(p) for p in (category or '').split('/') if p]
-    node = _get_node_for_path(extracts, parts)
-    if node is None:
-        return f"Category not found: {category}", 404
-
-    files = _list_files_in_node(node)
-    if not files:
-        return f"No files registered for: {category}", 404
-    if index < 1 or index > len(files):
-        return f"Index out of range for {category}: {index}", 404
-    return redirect(url_for('extracts_viewer', category=category, filename=files[index - 1]))
+    try:
+        normalised = normalise_category_path(category)
+    except ValueError:
+        return _unavailable('Extract unavailable', 'This extract path is not available in the published EQRF set.', 'Back to Extracts', 'extracts_index')
+    extracts = filtered_extract_tree(get_extracts()) or {}
+    node = _get_node_for_path(extracts, safe_path_parts(normalised))
+    items = public_extract_items_for_node(node, normalised)
+    if index < 1 or index > len(items):
+        return _unavailable('Extract unavailable', 'This document index is not available in the published EQRF set.', 'Back to Extracts', 'extracts_index')
+    return redirect(url_for('extracts_viewer', category=normalised, filename=items[index - 1]['filename']))
 
 # ---------------------- Static file senders ---------------------- #
 
@@ -1249,7 +1553,7 @@ def admin_checklists():
     checklists = get_checklists()
     return render_template(
         'admin_checklists.html',
-        checklist_paths=flatten_checklist_paths(checklists),
+        checklist_paths=_flatten_all_checklist_paths(checklists),
         invalid_checklists=_find_invalid_checklist_structures(checklists),
     )
 
@@ -1347,10 +1651,17 @@ def admin_checklist_preview():
     try:
         normalised = normalise_category_path(path)
         current = _get_node_for_path(get_checklists(), safe_path_parts(normalised))
-        if not isinstance(current, list):
-            flash('Checklist not found.', 'error')
+        if not is_valid_checklist_node(current):
+            flash('Checklist is not published because it is empty or invalid.', 'error')
             return redirect(url_for('admin_checklists'))
-        return render_template('checklist_view.html', category=normalised, items=current)
+        parts = safe_path_parts(normalised)
+        return render_template(
+            'checklist_view.html',
+            category=normalised,
+            items=[str(line).strip() for line in current if str(line).strip()],
+            breadcrumbs=_breadcrumb_items('Checklists', 'checklist_index', normalised, 'checklist_category', 'category'),
+            parent_path='/'.join(parts[:-1]) if len(parts) > 1 else '',
+        )
     except ValueError as exc:
         flash(str(exc), 'error')
         return redirect(url_for('admin_checklists'))

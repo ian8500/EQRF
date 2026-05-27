@@ -20,9 +20,14 @@
             <div class="document-summary">
               <strong>{{ checklist.path }}</strong>
               <span>{{ checklist.item_count }} item{{ '' if checklist.item_count == 1 else 's' }}</span>
+              <span class="visibility-chip {{ checklist.visibility_state }}">{{ checklist.visibility_label }}</span>
             </div>
             <div class="admin-actions">
-              <a class="btn" href="{{ url_for('admin_checklist_preview', path=checklist.path) }}">Preview</a>
+              {% if checklist.public_visible %}
+                <a class="btn" href="{{ url_for('admin_checklist_preview', path=checklist.path) }}">Preview public page</a>
+              {% else %}
+                <span class="status-chip warning">Preview hidden</span>
+              {% endif %}
               <a class="btn" href="{{ url_for('admin_checklist_edit', path=checklist.path) }}">Edit</a>
               <form action="{{ url_for('admin_checklist_delete') }}" method="post" onsubmit="return confirm('Delete checklist {{ checklist.path }}?');">
                 <input type="hidden" name="path" value="{{ checklist.path }}">

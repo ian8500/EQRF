@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<section class="page-shell">
+  <section class="empty-state">
+    <p class="eyebrow">Local content unavailable</p>
+    <h2>{{ title }}</h2>
+    <p>{{ message }}</p>
+    <div class="admin-actions">
+      <a class="btn" href="{{ back_url }}">{{ back_label }}</a>
+      {% if session.get('logged_in') %}
+        <a class="btn success" href="{{ url_for('admin_panel') }}">Open Admin</a>
+      {% endif %}
+    </div>
+  </section>
+</section>
+{% endblock %}

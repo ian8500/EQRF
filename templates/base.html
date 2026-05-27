@@ -37,6 +37,8 @@
   {% block head %}{% endblock %}
 </head>
 <body>
+  {% set endpoint = request.endpoint or '' %}
+  {% set active_section = 'CHECKLISTS' if endpoint.startswith('checklist') else ('EXTRACTS' if endpoint.startswith('extracts') or endpoint.startswith('send_pdf') or endpoint.startswith('send_jpg') else ('ADMIN' if endpoint.startswith('admin') or endpoint in ['upload_pdf', 'delete_pdf', 'delete_category', 'regenerate_pdf'] else 'HOME')) %}
   <header class="site-header">
     <div class="top-bar">
       <div class="brand-block">
@@ -44,19 +46,22 @@
         <div class="site-subtitle">Electronic Quick Reference Facility</div>
       </div>
       <div class="top-nav">
-        <a class="nav-button" href="{{ url_for('home') }}">Home</a>
-        <a class="nav-button" href="#" onclick="history.back(); return false;">Back</a>
-        <a class="nav-button" id="night-toggle" href="#">Display</a>
+        <a class="nav-button {{ 'active-nav' if active_section == 'HOME' else '' }}" href="{{ url_for('home') }}">Home</a>
+        <button class="nav-button" type="button" onclick="history.back();">Back</button>
+        <button class="nav-button" id="night-toggle" type="button">Display</button>
         {% if session.get('logged_in') %}
-          <a class="nav-button" href="{{ url_for('admin_panel') }}">Admin</a>
+          <a class="nav-button {{ 'active-nav' if active_section == 'ADMIN' else '' }}" href="{{ url_for('admin_panel') }}">Admin</a>
           <a class="nav-button" href="{{ url_for('logout') }}">Logout</a>
         {% else %}
           <a class="nav-button" href="{{ url_for('login') }}">Login</a>
         {% endif %}
       </div>
       <div class="status-strip" aria-label="System status">
+        <span class="status-pill section">ACTIVE: {{ active_section }}</span>
         <span class="status-pill">OPS MODE: NORMAL</span>
         <span class="status-pill data">DATA: LOCAL</span>
+        <span class="status-pill local-only">LOCAL CONTENT ONLY</span>
+        <span class="status-pill time" id="local-time">LOCAL TIME</span>
       </div>
     </div>
   </header>
@@ -90,6 +95,16 @@
         }
       });
     }
+
+    const localTime = document.getElementById('local-time');
+    function updateLocalTime() {
+      if (!localTime) return;
+      const now = new Date();
+      localTime.textContent = now.toLocaleDateString([], { day: '2-digit', month: 'short' }).toUpperCase() + ' ' +
+        now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    updateLocalTime();
+    window.setInterval(updateLocalTime, 30000);
   });
   </script>
 
