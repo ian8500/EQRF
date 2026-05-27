@@ -186,6 +186,36 @@ def test_admin_edit_pages_require_login(client):
     assert checklist_response.status_code == 302
 
 
+def test_trigger_refresh_requires_admin(client):
+    response = client.post('/trigger-refresh')
+
+    assert response.status_code == 302
+    assert '/login' in response.headers['Location']
+
+
+def test_admin_trigger_refresh_redirects_to_admin_flashes_and_audits(client, monkeypatch):
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+    client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
+
+    response = client.post('/trigger-refresh', follow_redirects=True)
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'Refresh triggered for connected clients.' in html
+    assert '<h2 class="page-title">Admin</h2>' in html
+    assert any(entry['action'] == 'trigger_refresh' for entry in get_audit_log())
+
+
+def test_trigger_refresh_json_response_for_api_clients(client, monkeypatch):
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+    client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
+
+    response = client.post('/trigger-refresh', headers={'Accept': 'application/json'})
+
+    assert response.status_code == 200
+    assert response.get_json() == {'ok': True}
+
+
 def test_known_static_jpg_route_works_if_available(client):
     jpgs = sorted(JPG_DIR.glob('*.jpg'))
     if not jpgs:
@@ -689,6 +719,54 @@ def test_public_viewer_pages_render_single_breadcrumb(client, isolated_content):
     assert 'Tower / GMC / Runway Change' not in checklist_html
 
 
+def test_resolve_refresh_target_home_and_admin(client, monkeypatch):
+    assert client.get('/resolve-refresh-target?current=/').get_json()['target'] == '/'
+    assert client.get('/resolve-refresh-target?current=/admin').get_json()['target'] == '/'
+
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+    client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
+
+    assert client.get('/resolve-refresh-target?current=/admin').get_json()['target'] == '/admin'
+
+
+def test_resolve_refresh_target_valid_and_missing_checklist_paths(client, isolated_content):
+    isolated_content.checklists.update({'TOWER': {'GMC': {'Runway 23': ['Line up']}}})
+
+    valid = client.get('/resolve-refresh-target?current=/checklists/TOWER/GMC/Runway%2023')
+    missing = client.get('/resolve-refresh-target?current=/checklists/TOWER/GMC/Missing')
+
+    assert valid.get_json()['target'] == '/checklists/TOWER/GMC/Runway 23'
+    assert missing.get_json()['target'] == '/checklists/TOWER/GMC'
+
+
+def test_resolve_refresh_target_missing_extract_child_uses_parent(client, isolated_content):
+    isolated_content.publish_pdf('Parking.pdf')
+    isolated_content.extracts.update({'TOWER': {'GMC': {'__files__': ['Parking.pdf']}}})
+
+    response = client.get('/resolve-refresh-target?current=/extracts/TOWER/GMC/Missing')
+
+    assert response.get_json()['target'] == '/extracts/TOWER/GMC'
+
+
+def test_resolve_refresh_target_missing_viewer_file_uses_extract_parent(client, isolated_content):
+    isolated_content.publish_pdf('Parking.pdf')
+    isolated_content.extracts.update({'TOWER': {'GMC': {'__files__': ['Parking.pdf']}}})
+
+    response = client.get('/resolve-refresh-target?current=/viewer/TOWER/GMC/Missing.pdf')
+
+    assert response.get_json()['target'] == '/extracts/TOWER/GMC'
+
+
+def test_resolve_refresh_target_rejects_unsafe_external_paths(client):
+    external = client.get('/resolve-refresh-target?current=https%3A%2F%2Fexample.com%2Fchecklists')
+    protocol_relative = client.get('/resolve-refresh-target?current=%2F%2Fexample.com%2Fchecklists')
+    traversal = client.get('/resolve-refresh-target?current=/checklists/../admin')
+
+    assert external.get_json()['target'] == '/'
+    assert protocol_relative.get_json()['target'] == '/'
+    assert traversal.get_json()['target'] == '/'
+
+
 def test_day_night_toggle_js_uses_localstorage():
     script = (app_module.BASE_DIR / 'static' / 'script.js').read_text(encoding='utf-8')
 
@@ -698,6 +776,16 @@ def test_day_night_toggle_js_uses_localstorage():
     assert 'theme-night' in script
     assert 'Day Mode' in script
     assert 'Night Mode' in script
+
+
+def test_refresh_js_resolves_target_without_home_redirect():
+    script = (app_module.BASE_DIR / 'static' / 'script.js').read_text(encoding='utf-8')
+    refresh_block = script[script.index('addEventListener("refresh"'):]
+
+    assert '/resolve-refresh-target' in refresh_block
+    assert 'encodeURIComponent(current)' in refresh_block
+    assert 'window.location.href = data.target' in refresh_block
+    assert 'window.location.href = "/"' not in refresh_block
 
 
 def test_public_pages_contain_no_emoji_icons(client):

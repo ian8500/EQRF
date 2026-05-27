@@ -110,7 +110,24 @@ function saveChecklistState() {
   // === SERVER-SENT EVENTS (SSE) FOR REFRESH ===
   if (typeof EventSource !== "undefined") {
     const evtSource = new EventSource("/stream");
-    evtSource.addEventListener("refresh", () => {
+    evtSource.addEventListener("refresh", async () => {
+      const current = window.location.pathname + window.location.search;
+      try {
+        const response = await fetch("/resolve-refresh-target?current=" + encodeURIComponent(current), {
+          credentials: "same-origin"
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data && data.target && typeof data.target === "string") {
+            if (data.target === current || data.target === window.location.pathname) {
+              window.location.reload();
+            } else {
+              window.location.href = data.target;
+            }
+            return;
+          }
+        }
+      } catch (_) { /* fall back to normal reload */ }
       window.location.reload();
     });
   }

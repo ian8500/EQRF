@@ -21,6 +21,7 @@ from flask import (
     send_from_directory,
     flash,
     Response,
+    jsonify,
 )
 from werkzeug.utils import secure_filename
 
@@ -1406,6 +1407,111 @@ def trigger_client_refresh() -> None:
     refresh_event.set()
 
 
+def is_safe_local_path(path: Any) -> bool:
+    value = unquote(str(path or '')).strip()
+    if not value or not value.startswith('/') or value.startswith('//'):
+        return False
+    lowered = value.lower()
+    if lowered.startswith(('http://', 'https://')):
+        return False
+    path_only = value.split('?', 1)[0].split('#', 1)[0].replace('\\', '/')
+    return all(part not in {'.', '..'} for part in path_only.split('/'))
+
+
+def _clean_refresh_path(path: Any) -> str:
+    value = unquote(str(path or '').strip())
+    return value.split('?', 1)[0].split('#', 1)[0] or '/'
+
+
+def _viewer_parts_for_refresh(path: str) -> Tuple[str, str]:
+    raw = _clean_refresh_path(path)
+    if not raw.startswith('/viewer/'):
+        return '', ''
+    parts = [part for part in raw.removeprefix('/viewer/').split('/') if part]
+    if len(parts) < 2:
+        return '', ''
+    return '/'.join(parts[:-1]), parts[-1]
+
+
+def path_exists_for_refresh(path: Any) -> bool:
+    if not is_safe_local_path(path):
+        return False
+    current = _clean_refresh_path(path).rstrip('/') or '/'
+    if current == '/':
+        return True
+    if current == '/admin':
+        return is_admin()
+    if current == '/checklists':
+        return True
+    if current.startswith('/checklists/'):
+        try:
+            subpath = normalise_category_path(current.removeprefix('/checklists/'))
+        except ValueError:
+            return False
+        tree = filtered_checklist_tree(get_checklists()) or {}
+        node = _get_node_for_path(tree, safe_path_parts(subpath))
+        return is_valid_checklist_node(node) or (isinstance(node, dict) and checklist_group_has_content(node))
+    if current == '/extracts':
+        return True
+    if current.startswith('/extracts/'):
+        try:
+            subpath = normalise_category_path(current.removeprefix('/extracts/'))
+        except ValueError:
+            return False
+        tree = filtered_extract_tree(get_extracts()) or {}
+        node = _get_node_for_path(tree, safe_path_parts(subpath))
+        return extract_group_has_content(node)
+    if current.startswith('/viewer/'):
+        try:
+            category, filename = _viewer_parts_for_refresh(current)
+            category = normalise_category_path(category)
+        except ValueError:
+            return False
+        if not category or not filename:
+            return False
+        node = _get_node_for_path(get_extracts(), safe_path_parts(category))
+        entry = _find_file_entry(node, filename) if node is not None else None
+        return bool(entry and extract_entry_is_valid(entry))
+    return False
+
+
+def parent_refresh_candidates(path: Any) -> List[str]:
+    if not is_safe_local_path(path):
+        return ['/']
+    current = _clean_refresh_path(path).rstrip('/') or '/'
+    if current in {'/', '/admin', '/checklists', '/extracts'}:
+        return [current]
+
+    if current.startswith('/viewer/'):
+        category, filename = _viewer_parts_for_refresh(current)
+        candidates = [current]
+        parts = safe_path_parts(category)
+        for index in range(len(parts), 0, -1):
+            candidates.append('/extracts/' + '/'.join(parts[:index]))
+        candidates.append('/extracts')
+        return candidates
+
+    for prefix in ('/checklists/', '/extracts/'):
+        if current.startswith(prefix):
+            base = prefix.rstrip('/')
+            subpath = current.removeprefix(prefix)
+            parts = safe_path_parts(subpath)
+            candidates = [current]
+            for index in range(len(parts) - 1, 0, -1):
+                candidates.append(base + '/' + '/'.join(parts[:index]))
+            candidates.append(base)
+            return candidates
+
+    return ['/']
+
+
+def resolve_refresh_target(path: Any) -> str:
+    for candidate in parent_refresh_candidates(path):
+        if path_exists_for_refresh(candidate):
+            return candidate
+    return '/'
+
+
 def _breadcrumb_items(root_label: str, root_endpoint: str, path: str, endpoint: str, param_name: str) -> List[Dict[str, Optional[str]]]:
     items = [{'label': root_label, 'url': url_for(root_endpoint)}]
     parts = safe_path_parts(path)
@@ -1536,10 +1642,20 @@ def stream():
 
 @app.route('/trigger-refresh', methods=['POST'])
 @app.route('/trigger_refresh', methods=['POST'])  # legacy alias
+@login_required
 def trigger_refresh():
     trigger_client_refresh()
     append_audit_log('trigger_refresh', 'system', 'clients', 'Triggered client refresh')
-    return 'OK'
+    if request.accept_mimetypes.best == 'application/json' or request.is_json:
+        return jsonify({'ok': True})
+    flash('Refresh triggered for connected clients.', 'success')
+    return redirect(url_for('admin_panel'))
+
+
+@app.route('/resolve-refresh-target')
+def resolve_refresh_target_route():
+    current = request.args.get('current') or '/'
+    return jsonify({'target': resolve_refresh_target(current)})
 
 # ---------------------- Home ---------------------- #
 
