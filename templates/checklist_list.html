@@ -21,16 +21,6 @@
     </nav>
   {% endif %}
 
-  {% if sibling_items %}
-    <aside class="category-nav-panel">
-      <div class="category-nav-list">
-        {% for sibling in sibling_items %}
-          <a href="{{ sibling.url }}">{{ sibling.label }}</a>
-        {% endfor %}
-      </div>
-    </aside>
-  {% endif %}
-
   {% if subcategories %}
     <div class="button-group">
       {% for name, value in subcategories.items() %}

@@ -22,16 +22,6 @@
   </nav>
 {% endif %}
 
-{% if sibling_items %}
-  <aside class="category-nav-panel">
-    <div class="category-nav-list">
-      {% for sibling in sibling_items %}
-        <a href="{{ sibling.url }}">{{ sibling.label }}</a>
-      {% endfor %}
-    </div>
-  </aside>
-{% endif %}
-
 <section class="pdf-viewer-shell" data-page-count="{{ item.page_count }}" data-category="{{ item.category }}" data-filename="{{ item.pdf }}">
   <div id="pdf-toolbar" class="pdf-toolbar">
     {% if parent_path == '--' %}

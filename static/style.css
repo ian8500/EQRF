@@ -1025,46 +1025,6 @@ button[type="submit"]:hover {
   color: var(--text);
 }
 
-.category-nav-panel {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: rgba(6, 18, 29, 0.58);
-}
-
-.category-nav-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.category-nav-list a {
-  display: inline-flex;
-  gap: 8px;
-  align-items: center;
-  min-height: 38px;
-  padding: 0 11px;
-  border: 1px solid rgba(124, 216, 255, 0.2);
-  border-radius: var(--radius);
-  color: var(--text);
-  background: rgba(10, 26, 42, 0.72);
-  font-weight: 750;
-  text-decoration: none;
-}
-
-.category-nav-list a:hover {
-  border-color: var(--cyan);
-}
-
-.category-nav-list a span {
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 0.68rem;
-  text-transform: uppercase;
-}
-
 .section-title-row {
   display: flex;
   flex-wrap: wrap;
@@ -1533,7 +1493,6 @@ th {
 :root.theme-day .sticky-toolbar,
 :root.theme-day .pdf-toolbar,
 :root.theme-day .breadcrumb,
-:root.theme-day .category-nav-panel,
 :root.theme-day details,
 :root.theme-day .tree-panel {
   background: rgba(255, 255, 255, 0.86);
@@ -1548,7 +1507,6 @@ th {
 
 :root.theme-day .checklist-row label,
 :root.theme-day .preview-row,
-:root.theme-day .category-nav-list a,
 :root.theme-day .health-list li,
 :root.theme-day .syntax-list li {
   background: rgba(255, 255, 255, 0.82);

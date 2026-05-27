@@ -1120,6 +1120,52 @@ def test_checklist_pages_do_not_show_explanatory_tile_text(client, isolated_cont
         assert 'Checklist</span>' not in html
 
 
+def test_extract_category_pages_do_not_render_duplicate_shortcut_strip(client, isolated_content):
+    isolated_content.publish_pdf('Sid.pdf')
+    isolated_content.publish_pdf('Parking.pdf')
+    isolated_content.extracts.update({
+        'AIR': {
+            'SID': {'__files__': [{'pdf': 'Sid.pdf', 'title': 'SID'}]},
+            'Parking': {'__files__': [{'pdf': 'Parking.pdf', 'title': 'Parking'}]},
+        },
+    })
+
+    response = client.get('/extracts/AIR')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'category-nav-panel' not in html
+    assert 'category-nav-list' not in html
+    assert '<strong>SID</strong>' in html
+    assert '<strong>Parking</strong>' in html
+
+
+def test_checklist_category_pages_do_not_render_duplicate_shortcut_strip(client, isolated_content):
+    isolated_content.checklists.update({'Tower': {'GMC': ['Line up'], 'ADC': ['Clearance']}})
+
+    response = client.get('/checklists/Tower')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'category-nav-panel' not in html
+    assert 'category-nav-list' not in html
+    assert '<strong>GMC</strong>' in html
+    assert '<strong>ADC</strong>' in html
+
+
+def test_viewer_pages_do_not_render_duplicate_shortcut_strip(client, isolated_content):
+    jpgs = isolated_content.publish_pdf('Valid.pdf')
+    isolated_content.extracts.update({'AIR': {'__files__': [{'pdf': 'Valid.pdf', 'jpgs': jpgs, 'title': 'Valid'}]}})
+    isolated_content.checklists.update({'Tower': {'GMC': {'Runway': ['Line up']}}})
+
+    for path in ['/viewer/AIR/Valid.pdf', '/checklists/Tower/GMC/Runway']:
+        response = client.get(path)
+        html = response.get_data(as_text=True)
+        assert response.status_code == 200
+        assert 'category-nav-panel' not in html
+        assert 'category-nav-list' not in html
+
+
 def test_public_pages_do_not_emit_external_or_invalid_content_links(client, isolated_content):
     isolated_content.checklists.update({
         'Tower': {'Runway 05': ['Line up']},
