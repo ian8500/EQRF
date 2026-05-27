@@ -30,7 +30,8 @@ from app import (
     normalise_file_entry,
     normalise_category_path,
     get_general_reference_entries,
-    search_general_reference_entries,
+    get_cached_pdf_text_pages,
+    search_pdf_text,
     safe_path_parts,
     upsert_checklist,
     upsert_checklist_with_metadata,
@@ -599,60 +600,6 @@ def test_draft_extract_hidden_and_published_extract_visible(client, isolated_con
     assert b'Draft Extract' not in response.data
 
 
-def test_general_reference_search_loads_and_handles_blank(client, isolated_content):
-    response = client.get('/general-reference/search')
-
-    assert response.status_code == 200
-    assert b'General Reference Search' in response.data
-    assert b'No matching General Reference PDFs' not in response.data
-
-
-def test_general_reference_search_finds_by_filename_and_title(client, isolated_content):
-    isolated_content.publish_pdf('MATS1.pdf')
-    isolated_content.publish_pdf('Parking.pdf')
-    isolated_content.extracts.update({
-        '--': {'__files__': [
-            {'pdf': 'MATS1.pdf', 'title': 'MATS 1'},
-            {'pdf': 'Parking.pdf', 'title': 'Parking Reference'},
-        ]},
-    })
-
-    by_filename = client.get('/general-reference/search?q=mats')
-    by_title = client.get('/general-reference/search?q=parking')
-
-    assert by_filename.status_code == 200
-    assert b'MATS 1' in by_filename.data
-    assert b'/viewer/--/MATS1.pdf' in by_filename.data
-    assert b'Parking Reference' in by_title.data
-
-
-def test_general_reference_search_excludes_categorised_extracts_and_checklists(client, isolated_content):
-    isolated_content.publish_pdf('General.pdf')
-    isolated_content.publish_pdf('Categorised.pdf')
-    isolated_content.extracts.update({
-        '--': {'__files__': [{'pdf': 'General.pdf', 'title': 'Parking General'}]},
-        'AIR': {'__files__': [{'pdf': 'Categorised.pdf', 'title': 'Parking Categorised'}]},
-    })
-    isolated_content.checklists.update({'Tower': {'Parking Checklist': ['Line up']}})
-
-    response = client.get('/general-reference/search?q=parking')
-    html = response.get_data(as_text=True)
-
-    assert response.status_code == 200
-    assert 'Parking General' in html
-    assert 'Parking Categorised' not in html
-    assert 'Parking Checklist' not in html
-    assert 'http://' not in html
-    assert 'https://' not in html
-
-
-def test_general_reference_search_no_results_message(client, isolated_content):
-    response = client.get('/general-reference/search?q=zzzz')
-
-    assert response.status_code == 200
-    assert b'No matching General Reference PDFs' in response.data
-
-
 def test_home_hides_extracts_card_when_no_valid_extracts(client, isolated_content):
     isolated_content.extracts.update({'AIR': {'__files__': ['Missing.pdf']}})
 
@@ -680,6 +627,19 @@ def test_home_hides_general_reference_when_none_exist(client, isolated_content):
 
     assert response.status_code == 200
     assert b'General Reference' not in response.data
+
+
+def test_general_reference_home_section_has_no_old_search_form(client, isolated_content):
+    isolated_content.publish_pdf('MATS1.pdf')
+    isolated_content.extracts.update({'--': {'__files__': [{'pdf': 'MATS1.pdf', 'title': 'MATS 1'}]}})
+
+    response = client.get('/')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'General Reference' in html
+    assert 'Search General Reference' not in html
+    assert '/general-reference/search' not in html
 
 
 def test_general_reference_collects_root_and_misc_entries(client, isolated_content):
@@ -851,6 +811,106 @@ def test_pdf_viewer_script_handles_fit_modes_rotation_and_layout():
     assert 'naturalLayoutWidth' in script
     assert 'naturalLayoutHeight' in script
     assert 'scale(${viewerZoom})' not in script
+
+
+def test_extract_viewer_includes_pdf_search_controls_and_page_numbers(client, isolated_content):
+    jpgs = isolated_content.publish_pdf('Searchable.pdf')
+    isolated_content.extracts.update({'Tower': {'__files__': [{'pdf': 'Searchable.pdf', 'jpgs': jpgs, 'title': 'Searchable'}]}})
+
+    response = client.get('/viewer/Tower/Searchable.pdf')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'id="pdf-search-input"' in html
+    assert 'id="pdf-search-prev"' in html
+    assert 'id="pdf-search-next"' in html
+    assert 'id="pdf-search-clear"' in html
+    assert 'data-page-number="1"' in html
+
+
+def test_viewer_search_validates_registered_pdf_and_returns_json(client, isolated_content, monkeypatch):
+    isolated_content.publish_pdf('Searchable.pdf')
+    isolated_content.extracts.update({'Tower': {'__files__': [{'pdf': 'Searchable.pdf', 'jpgs': ['Searchable_page1.jpg'], 'title': 'Searchable'}]}})
+    monkeypatch.setattr(app_module, 'search_pdf_text', lambda filename, query: [{'page': 1, 'snippet': 'wake turbulence'}])
+
+    response = client.get('/viewer-search?category=Tower&filename=Searchable.pdf&q=wake')
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload['filename'] == 'Searchable.pdf'
+    assert payload['query'] == 'wake'
+    assert payload['result_count'] == 1
+    assert payload['results'][0]['page'] == 1
+
+
+def test_viewer_search_returns_empty_results_for_no_match(client, isolated_content, monkeypatch):
+    isolated_content.publish_pdf('Searchable.pdf')
+    isolated_content.extracts.update({'Tower': {'__files__': [{'pdf': 'Searchable.pdf', 'jpgs': ['Searchable_page1.jpg']}]}})
+    monkeypatch.setattr(app_module, 'search_pdf_text', lambda filename, query: [])
+
+    response = client.get('/viewer-search?category=Tower&filename=Searchable.pdf&q=absent')
+
+    assert response.status_code == 200
+    assert response.get_json()['result_count'] == 0
+
+
+def test_viewer_search_rejects_unsafe_or_unregistered_files(client, isolated_content):
+    isolated_content.publish_pdf('Registered.pdf')
+    isolated_content.extracts.update({'Tower': {'__files__': ['Registered.pdf']}})
+
+    unsafe_filename = client.get('/viewer-search?category=Tower&filename=../secret.pdf&q=x')
+    unsafe_category = client.get('/viewer-search?category=../admin&filename=Registered.pdf&q=x')
+    unregistered = client.get('/viewer-search?category=Tower&filename=Other.pdf&q=x')
+
+    assert unsafe_filename.status_code == 400
+    assert unsafe_category.status_code == 400
+    assert unregistered.status_code == 404
+
+
+def test_search_pdf_text_finds_known_term_from_cached_pages(monkeypatch):
+    monkeypatch.setattr(app_module, 'get_cached_pdf_text_pages', lambda filename: [
+        {'page': 1, 'text': 'Departure clearance only.'},
+        {'page': 2, 'text': 'Wake turbulence separation applies.'},
+    ])
+
+    results = search_pdf_text('Any.pdf', 'wake')
+
+    assert results == [{'page': 2, 'snippet': 'Wake turbulence separation applies.'}]
+
+
+def test_pdf_text_cache_invalidates_when_file_changes(tmp_path, monkeypatch):
+    pdf_dir = tmp_path / 'pdfs'
+    pdf_dir.mkdir()
+    cache_file = tmp_path / 'pdf_text_cache.json'
+    pdf_path = pdf_dir / 'Cache.pdf'
+    pdf_path.write_bytes(b'%PDF old')
+    monkeypatch.setattr(app_module, 'PDF_DIR', pdf_dir)
+    monkeypatch.setattr(app_module, 'PDF_TEXT_CACHE_JSON', cache_file)
+    calls = []
+
+    def fake_extract(filename):
+      calls.append(filename)
+      return [{'page': 1, 'text': f'extracted {len(calls)}'}]
+
+    monkeypatch.setattr(app_module, 'extract_pdf_text_pages', fake_extract)
+
+    first = get_cached_pdf_text_pages('Cache.pdf')
+    second = get_cached_pdf_text_pages('Cache.pdf')
+    pdf_path.write_bytes(b'%PDF changed and bigger')
+    third = get_cached_pdf_text_pages('Cache.pdf')
+
+    assert first == second
+    assert third != first
+    assert calls == ['Cache.pdf', 'Cache.pdf']
+
+
+def test_pdf_viewer_script_calls_viewer_search_and_highlights_pages():
+    script = (app_module.BASE_DIR / 'static' / 'script.js').read_text(encoding='utf-8')
+
+    assert '/viewer-search?' in script
+    assert 'data-page-number' in script
+    assert 'search-current' in script
+    assert 'search-hit' in script
 
 
 def test_checklist_viewer_renders_breadcrumb_for_nested_category(client, isolated_content):

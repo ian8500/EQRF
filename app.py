@@ -99,6 +99,7 @@ refresh_event = Event()
 EXTRACTS_JSON = DATA_DIR / 'extracts.json'
 CHECKLISTS_JSON = DATA_DIR / 'checklists.json'
 AUDIT_LOG_JSON = DATA_DIR / 'audit_log.json'
+PDF_TEXT_CACHE_JSON = DATA_DIR / 'pdf_text_cache.json'
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -1038,6 +1039,15 @@ def _jpg_names_for_pdf(filename: str) -> List[str]:
     return [path.name for path in _jpg_glob_for_pdf(filename)]
 
 
+def _safe_pdf_filename(filename: Any) -> str:
+    value = str(filename or '').strip()
+    if not value or value != Path(value).name or '/' in value or '\\' in value:
+        raise ValueError('Invalid filename.')
+    if not value.lower().endswith('.pdf'):
+        raise ValueError('Invalid filename.')
+    return value
+
+
 def local_pdf_exists(filename: str) -> bool:
     return bool(filename and (PDF_DIR / filename).is_file())
 
@@ -1059,6 +1069,97 @@ def get_valid_jpgs_for_pdf(filename: str, metadata_jpgs: Optional[Iterable[str]]
             valid.append(jpg_name)
             seen.add(jpg_name)
     return valid
+
+
+def load_pdf_text_cache() -> Dict[str, Any]:
+    cache = _read_json(PDF_TEXT_CACHE_JSON, {})
+    return cache if isinstance(cache, dict) else {}
+
+
+def save_pdf_text_cache(cache: Dict[str, Any]) -> None:
+    _write_json(PDF_TEXT_CACHE_JSON, cache)
+
+
+def get_pdf_text_cache_key(filename: str) -> Dict[str, Any]:
+    filename = _safe_pdf_filename(filename)
+    pdf_path = PDF_DIR / filename
+    stat = pdf_path.stat()
+    return {
+        'filename': filename,
+        'mtime': stat.st_mtime,
+        'size': stat.st_size,
+    }
+
+
+def extract_pdf_text_pages(filename: str) -> List[Dict[str, Any]]:
+    filename = _safe_pdf_filename(filename)
+    pdf_path = PDF_DIR / filename
+    if not pdf_path.is_file():
+        raise ValueError('PDF not found.')
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise RuntimeError('PDF text search is not available.') from exc
+
+    pages: List[Dict[str, Any]] = []
+    reader = PdfReader(str(pdf_path))
+    for index, page in enumerate(reader.pages, start=1):
+        text = page.extract_text() or ''
+        pages.append({'page': index, 'text': text})
+    return pages
+
+
+def get_cached_pdf_text_pages(filename: str) -> List[Dict[str, Any]]:
+    key = get_pdf_text_cache_key(filename)
+    cache = load_pdf_text_cache()
+    cached = cache.get(filename)
+    if (
+        isinstance(cached, dict)
+        and cached.get('mtime') == key['mtime']
+        and cached.get('size') == key['size']
+        and isinstance(cached.get('pages'), list)
+    ):
+        return cached['pages']
+
+    pages = extract_pdf_text_pages(filename)
+    cache[filename] = {**key, 'pages': pages}
+    save_pdf_text_cache(cache)
+    return pages
+
+
+def _search_snippet(text: str, start: int, end: int, radius: int = 72) -> str:
+    left = max(0, start - radius)
+    right = min(len(text), end + radius)
+    snippet = ' '.join(text[left:right].split())
+    if left > 0:
+        snippet = '... ' + snippet
+    if right < len(text):
+        snippet += ' ...'
+    return snippet
+
+
+def search_pdf_text(filename: str, query: Any, limit: int = 100) -> List[Dict[str, Any]]:
+    q = str(query or '').strip()
+    if not q:
+        return []
+    q_lower = q.lower()
+    results: List[Dict[str, Any]] = []
+    for page in get_cached_pdf_text_pages(filename):
+        text = str(page.get('text') or '')
+        if not text:
+            continue
+        search_from = 0
+        lower_text = text.lower()
+        while len(results) < limit:
+            match_at = lower_text.find(q_lower, search_from)
+            if match_at < 0:
+                break
+            results.append({
+                'page': int(page.get('page') or 0),
+                'snippet': _search_snippet(text, match_at, match_at + len(q)),
+            })
+            search_from = match_at + len(q_lower)
+    return results
 
 
 def local_jpgs_exist_for_pdf(filename: str) -> bool:
@@ -1155,17 +1256,6 @@ def get_general_reference_entries() -> List[Dict[str, Any]]:
             add_entries(misc_node, 'MISC')
 
     return sorted(entries, key=lambda item: item['title'].lower())
-
-
-def search_general_reference_entries(query: Any) -> List[Dict[str, Any]]:
-    q = str(query or '').strip().lower()
-    entries = get_general_reference_entries()
-    if not q:
-        return []
-    return [
-        entry for entry in entries
-        if q in entry['title'].lower() or q in entry['filename'].lower()
-    ]
 
 
 def _ensure_jpgs_for_pdf(
@@ -1638,6 +1728,19 @@ def _extract_sibling_items(tree: Any, category: str) -> List[Dict[str, str]]:
     return siblings
 
 
+def _registered_extract_entry(category: str, filename: str) -> Optional[Any]:
+    filename = _safe_pdf_filename(filename)
+    normalised_category = normalise_category_path(category)
+    node = _get_node_for_path(get_extracts(), safe_path_parts(normalised_category))
+    if normalised_category == '--' and _find_file_entry(node, filename) is None:
+        root_entry = _find_file_entry(get_extracts(), filename)
+        if root_entry is not None:
+            return root_entry
+    if node is None:
+        return None
+    return _find_file_entry(node, filename)
+
+
 def _unavailable(title: str, message: str, back_label: str, back_endpoint: str, status: int = 404):
     return render_template(
         'unavailable.html',
@@ -1811,15 +1914,32 @@ def extracts_index():
     )
 
 
-@app.route('/general-reference/search')
-def general_reference_search():
+@app.route('/viewer-search')
+def viewer_search():
+    category = request.args.get('category') or ''
+    filename = request.args.get('filename') or ''
     query = request.args.get('q') or ''
-    results = search_general_reference_entries(query)
-    return render_template(
-        'general_reference_search.html',
-        query=query,
-        results=results,
-    )
+    try:
+        filename = _safe_pdf_filename(filename)
+        normalised_category = normalise_category_path(category)
+        entry = _registered_extract_entry(normalised_category, filename)
+        if entry is None or not extract_entry_is_valid(entry):
+            return jsonify({'error': 'PDF not found.', 'results': [], 'result_count': 0}), 404
+        if not local_pdf_exists(filename):
+            return jsonify({'error': 'PDF not found.', 'results': [], 'result_count': 0}), 404
+        results = search_pdf_text(filename, query)
+        return jsonify({
+            'query': str(query or '').strip(),
+            'filename': filename,
+            'result_count': len(results),
+            'results': results,
+        })
+    except ValueError:
+        return jsonify({'error': 'Invalid PDF search request.', 'results': [], 'result_count': 0}), 400
+    except RuntimeError:
+        return jsonify({'error': 'This PDF could not be text searched.', 'results': [], 'result_count': 0}), 200
+    except Exception:
+        return jsonify({'error': 'This PDF could not be text searched.', 'results': [], 'result_count': 0}), 200
 
 
 # Legacy single-level route kept for compatibility

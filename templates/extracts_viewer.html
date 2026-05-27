@@ -32,7 +32,7 @@
   </aside>
 {% endif %}
 
-<section class="pdf-viewer-shell" data-page-count="{{ item.page_count }}">
+<section class="pdf-viewer-shell" data-page-count="{{ item.page_count }}" data-category="{{ item.category }}" data-filename="{{ item.pdf }}">
   <div id="pdf-toolbar" class="pdf-toolbar">
     {% if parent_path == '--' %}
       <a class="btn" href="{{ url_for('home') }}">Back</a>
@@ -48,12 +48,22 @@
     <button type="button" id="pdf-fit-height" title="Fit document height">Fit Height</button>
     <button type="button" id="pdf-rotate" title="Rotate document">Rotate</button>
     <button type="button" id="pdf-reset" title="Reset view">Reset</button>
+    <form class="pdf-search-form" id="pdf-search-form">
+      <input class="pdf-search-input" id="pdf-search-input" type="search" placeholder="Search this PDF" aria-label="Search this PDF">
+      <button type="submit">Search</button>
+      <button type="button" id="pdf-search-prev">Previous</button>
+      <button type="button" id="pdf-search-next">Next</button>
+      <span class="page-indicator" id="pdf-search-count">0 / 0</span>
+      <button type="button" id="pdf-search-clear">Clear</button>
+    </form>
   </div>
+
+  <div class="pdf-search-results" id="pdf-search-results" hidden></div>
 
   <div class="pdf-scroll" id="pdf-scroll">
     <div class="pdf-page-stack" id="pdf-page-stack">
       {% for jpg in item.jpgs %}
-        <figure class="pdf-page-frame" data-page-index="{{ loop.index0 }}">
+        <figure class="pdf-page-frame" data-page-index="{{ loop.index0 }}" data-page-number="{{ loop.index }}">
           <figcaption>Page {{ loop.index }} of {{ item.page_count }}</figcaption>
           <img
             src="{{ url_for('send_jpg', filename=jpg) }}"
