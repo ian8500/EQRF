@@ -26,8 +26,7 @@
       {% else %}
         <a class="btn" href="{{ url_for('checklist_index') }}">Back to Checklists</a>
       {% endif %}
-      <button class="btn" type="button" onclick="clearCompletedChecklist()">Clear Completed</button>
-      <button class="btn danger" id="reset-checklist-top" type="button" onclick="resetChecklist()">Reset</button>
+      <button class="btn danger" id="reset-checklist-top" type="button" onclick="resetChecklist()">Reset Checklist</button>
     </div>
   </div>
 
@@ -52,7 +51,7 @@
     {% else %}
       <a class="btn" href="{{ url_for('checklist_index') }}">Back to Checklists</a>
     {% endif %}
-    <button class="btn danger" id="reset-checklist-bottom" type="button" onclick="resetChecklist()">Reset</button>
+    <button class="btn danger" id="reset-checklist-bottom" type="button" onclick="resetChecklist()">Reset Checklist</button>
   </div>
 </section>
 {% endblock %}

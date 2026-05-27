@@ -123,6 +123,8 @@ def test_admin_link_hidden_when_logged_out(client):
 
     assert response.status_code == 200
     assert b'>Admin<' not in response.data
+    assert b'Admin Login' in response.data
+    assert b'>Login<' not in response.data
 
 
 def test_admin_link_appears_after_admin_login(client, monkeypatch):
@@ -736,6 +738,19 @@ def test_public_checklist_renders_cat_a_minimum_variants_as_critical(client, iso
     assert html.count('cat-a-critical') == len(lines)
 
 
+def test_checklist_view_removes_clear_completed_and_keeps_reset(client, isolated_content):
+    isolated_content.checklists.update({'Tower': {'GMC': {'Compact': ['Line up', 'CAT A ONLY']}}})
+
+    response = client.get('/checklists/Tower/GMC/Compact')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'Clear Completed' not in html
+    assert 'clearCompletedChecklist' not in html
+    assert 'Reset Checklist' in html
+    assert 'resetChecklist()' in html
+
+
 def test_extract_viewer_renders_breadcrumb_for_nested_category(client, isolated_content):
     jpgs = isolated_content.publish_pdf('Valid.pdf')
     isolated_content.extracts.update({
@@ -1112,6 +1127,8 @@ def test_day_night_toggle_js_uses_localstorage():
     assert 'theme-night' in script
     assert 'Day Mode' in script
     assert 'Night Mode' in script
+    assert 'mode === "day" ? "Night Mode" : "Day Mode"' in script
+    assert 'clearCompletedChecklist' not in script
 
 
 def test_refresh_js_resolves_target_without_home_redirect():

@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <!-- Main styles -->
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='atc-ops') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='compact-controls') }}">
 
   <!-- Theme before paint (avoid palette flash) -->
   <script>
@@ -38,7 +38,7 @@
   </script>
 
   <!-- Your site JS -->
-  <script defer src="{{ url_for('static', filename='script.js', v='pdfjs-direct') }}"></script>
+  <script defer src="{{ url_for('static', filename='script.js', v='compact-controls') }}"></script>
 
   {% block head %}{% endblock %}
 </head>
@@ -53,12 +53,12 @@
       <div class="top-nav">
         <a class="nav-button {{ 'active-nav' if active_section == 'HOME' else '' }}" href="{{ url_for('home') }}">Home</a>
         <button class="nav-button" type="button" onclick="history.back();">Back</button>
-        <button class="nav-button" id="theme-toggle" type="button">Night Mode</button>
+        <button class="nav-button" id="theme-toggle" type="button">Day Mode</button>
         {% if session.get("is_admin") %}
           <a class="nav-button {{ 'active-nav' if active_section == 'ADMIN' else '' }}" href="{{ url_for('admin_panel') }}">Admin</a>
           <a class="nav-button" href="{{ url_for('logout') }}">Logout</a>
         {% else %}
-          <a class="nav-button" href="{{ url_for('login') }}">Login</a>
+          <a class="nav-button" href="{{ url_for('login') }}">Admin Login</a>
         {% endif %}
       </div>
     </div>

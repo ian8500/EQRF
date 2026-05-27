@@ -59,18 +59,6 @@ function saveChecklistState() {
     updateChecklistProgress();
   }
 
-  function clearCompletedChecklist() {
-    const checked = document.querySelectorAll('#checklist input[type="checkbox"]:checked');
-    checked.forEach(cb => {
-      cb.checked = false;
-      const label = cb.parentElement;
-      if (label) label.classList.remove("checked");
-    });
-    saveChecklistState();
-    updateChecklistProgress();
-  }
-  
-  
   // === DAY / NIGHT MODE TOGGLE ===
   function getSavedTheme() {
     const current = localStorage.getItem("eqrf-theme") || localStorage.getItem("theme");
@@ -93,7 +81,7 @@ function saveChecklistState() {
   function updateThemeToggleText(mode) {
     const toggle = document.getElementById("theme-toggle");
     if (!toggle) return;
-    toggle.textContent = mode === "day" ? "Day Mode" : "Night Mode";
+    toggle.textContent = mode === "day" ? "Night Mode" : "Day Mode";
     toggle.setAttribute("aria-pressed", mode === "night" ? "true" : "false");
   }
 
