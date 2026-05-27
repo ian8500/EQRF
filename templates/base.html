@@ -49,7 +49,6 @@
     <div class="top-bar">
       <div class="brand-block">
         <h1 class="site-title">GLASGOW E-QRF</h1>
-        <div class="site-subtitle">Electronic Quick Reference Facility</div>
       </div>
       <div class="top-nav">
         <a class="nav-button {{ 'active-nav' if active_section == 'HOME' else '' }}" href="{{ url_for('home') }}">Home</a>
@@ -61,11 +60,6 @@
         {% else %}
           <a class="nav-button" href="{{ url_for('login') }}">Login</a>
         {% endif %}
-      </div>
-      <div class="status-strip" aria-label="System status">
-        <span class="status-pill section">ACTIVE: {{ active_section }}</span>
-        <span class="status-pill local-only">LOCAL CONTENT ONLY</span>
-        <span class="status-pill time" id="local-time">LOCAL TIME</span>
       </div>
     </div>
   </header>
@@ -82,21 +76,6 @@
     {% endwith %}
     {% block content %}{% endblock %}
   </main>
-
-  <!-- Local time display -->
-  <script>
-  document.addEventListener('DOMContentLoaded', function () {
-    const localTime = document.getElementById('local-time');
-    function updateLocalTime() {
-      if (!localTime) return;
-      const now = new Date();
-      localTime.textContent = now.toLocaleDateString([], { day: '2-digit', month: 'short' }).toUpperCase() + ' ' +
-        now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    }
-    updateLocalTime();
-    window.setInterval(updateLocalTime, 30000);
-  });
-  </script>
 
   {% block scripts %}{% endblock %}
 </body>

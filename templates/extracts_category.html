@@ -5,9 +5,7 @@
 <section class="page-shell">
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Extract category</p>
       <h2 class="page-title">{{ category.replace('/', ' / ') }}</h2>
-      <p class="page-copy">Select a subcategory or PDF extract.</p>
     </div>
   </div>
 
@@ -25,10 +23,9 @@
 
   {% if sibling_items %}
     <aside class="category-nav-panel">
-      <span class="metric-label">Current layer</span>
       <div class="category-nav-list">
         {% for sibling in sibling_items %}
-          <a href="{{ sibling.url }}">{{ sibling.label }} <span>{{ sibling.kind }}</span></a>
+          <a href="{{ sibling.url }}">{{ sibling.label }}</a>
         {% endfor %}
       </div>
     </aside>
@@ -39,25 +36,17 @@
       {% for key in subcategories.keys() %}
         <a class="extract-card folder" href="{{ url_for('extracts_category', subpath=(category ~ '/' ~ key).lstrip('/')) }}">
           <strong>{{ key }}</strong>
-          <span class="tile-meta">Open verified local document group</span>
         </a>
       {% endfor %}
 
       {% for item in items %}
         <a class="extract-card pdf" href="{{ url_for('extracts_viewer', category=category, filename=item.filename) }}">
           <strong>{{ item.label }}</strong>
-          <span class="tile-meta">{{ item.page_count }} page{{ '' if item.page_count == 1 else 's' }} / {{ item.orientation|upper }}</span>
-          <span class="document-status-row">
-            <span class="status-chip ok">LOCAL PDF</span>
-            <span class="status-chip ok">RENDERED</span>
-            <span class="status-chip">{{ item.orientation|upper }}</span>
-          </span>
         </a>
       {% endfor %}
     </div>
   {% else %}
     <section class="empty-state">
-      <p class="eyebrow">No published extracts</p>
       <h3>No published EQRF extracts available in this category.</h3>
       <a class="btn" href="{{ url_for('extracts_index') }}">Back to Extracts</a>
     </section>

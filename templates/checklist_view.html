@@ -17,10 +17,9 @@
 
   {% if sibling_items %}
     <aside class="category-nav-panel">
-      <span class="metric-label">Current layer</span>
       <div class="category-nav-list">
         {% for sibling in sibling_items %}
-          <a href="{{ sibling.url }}">{{ sibling.label }} <span>{{ sibling.kind }}</span></a>
+          <a href="{{ sibling.url }}">{{ sibling.label }}</a>
         {% endfor %}
       </div>
     </aside>
@@ -28,7 +27,6 @@
 
   <div id="checklist-sticky">
     <div>
-      <p class="eyebrow">Active checklist</p>
       <h2 class="checklist-title">{{ category.replace('/', ' / ') }}</h2>
       <div class="checklist-progress" id="checklist-progress">0 / 0 complete</div>
     </div>

@@ -240,6 +240,29 @@ def test_home_page_does_not_show_command_labels(client):
     assert b'COMMAND 03' not in response.data
 
 
+def test_home_page_does_not_show_public_summary_or_status_panels(client):
+    response = client.get('/')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    forbidden = [
+        'Checklist count',
+        'Extract count',
+        'Quick Reference count',
+        'Published Content',
+        'System posture',
+        'Content source',
+        'External links',
+        'Mode: Operational',
+        'STATUS: AVAILABLE',
+        'CONTENT: LOCAL EQRF',
+        'LINKS: INTERNAL ONLY',
+        'LOCAL CONTENT ONLY',
+    ]
+    for text in forbidden:
+        assert text not in html
+
+
 def test_empty_extract_folders_and_missing_assets_are_hidden(client, isolated_content):
     isolated_content.extracts.update({
         'Empty': {},
@@ -389,6 +412,36 @@ def test_public_pages_contain_no_emoji_icons(client):
         response = client.get(path)
         assert response.status_code == 200
         assert emoji_pattern.search(response.get_data(as_text=True)) is None
+
+
+def test_extract_pages_do_not_show_explanatory_tile_text(client, isolated_content):
+    isolated_content.publish_pdf('Valid.pdf')
+    isolated_content.publish_pdf('Other.pdf')
+    isolated_content.extracts.update({'AIR': {'__files__': ['Valid.pdf', 'Other.pdf']}})
+
+    for path in ['/extracts', '/extracts/AIR']:
+        response = client.get(path)
+        html = response.get_data(as_text=True)
+        assert response.status_code == 200
+        assert 'Open document group' not in html
+        assert 'Open rendered document' not in html
+        assert 'Open verified local document group' not in html
+        assert 'Category' not in html
+        assert 'PDF Extract' not in html
+        assert 'PDF extract' not in html
+
+
+def test_checklist_pages_do_not_show_explanatory_tile_text(client, isolated_content):
+    isolated_content.checklists.update({'Tower': {'GMC': ['Line up']}})
+
+    for path in ['/checklists', '/checklists/Tower']:
+        response = client.get(path)
+        html = response.get_data(as_text=True)
+        assert response.status_code == 200
+        assert 'Open operational checklist' not in html
+        assert 'Open nested checklist group' not in html
+        assert 'Folder' not in html
+        assert 'Checklist</span>' not in html
 
 
 def test_public_pages_do_not_emit_external_or_invalid_content_links(client, isolated_content):

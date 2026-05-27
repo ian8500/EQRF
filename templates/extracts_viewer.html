@@ -6,14 +6,7 @@
 <section class="page-shell">
 <div class="page-heading">
   <div>
-    <p class="eyebrow">Document viewer</p>
     <h2 class="extract-title">{{ page_title }}</h2>
-    <div class="document-status-row">
-      <span class="status-chip ok">LOCAL PDF</span>
-      <span class="status-chip ok">RENDERED</span>
-      <span class="status-chip">{{ item.orientation|upper }}</span>
-      <span class="status-chip">{{ item.page_count }} page{{ '' if item.page_count == 1 else 's' }}</span>
-    </div>
   </div>
 </div>
 
@@ -31,10 +24,9 @@
 
 {% if sibling_items %}
   <aside class="category-nav-panel">
-    <span class="metric-label">Current layer</span>
     <div class="category-nav-list">
       {% for sibling in sibling_items %}
-        <a href="{{ sibling.url }}">{{ sibling.label }} <span>{{ sibling.kind }}</span></a>
+        <a href="{{ sibling.url }}">{{ sibling.label }}</a>
       {% endfor %}
     </div>
   </aside>

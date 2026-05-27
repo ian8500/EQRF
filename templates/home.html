@@ -5,9 +5,7 @@
 <section class="page-shell">
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Operations console</p>
       <h2 class="page-title">Glasgow E-QRF</h2>
-      <p class="page-copy">Fast access to live-reference checklists and local PDF extracts for tower and radar operations.</p>
     </div>
   </div>
 
@@ -15,56 +13,26 @@
     {% if has_checklists %}
       <a class="ops-card" href="{{ url_for('checklist_index') }}">
         <strong>Checklists</strong>
-        <span class="tile-desc">Run the current local EQRF checklist set with touch-ready completion tracking.</span>
-        <span class="tile-meta">{{ checklist_count }} published checklist{{ '' if checklist_count == 1 else 's' }}</span>
       </a>
     {% endif %}
 
     {% if has_extracts %}
       <a class="ops-card" href="{{ url_for('extracts_index') }}">
         <strong>Extracts</strong>
-        <span class="tile-desc">Open locally registered PDFs with verified source files and rendered JPG pages.</span>
-        <span class="tile-meta">{{ extract_count }} published extract{{ '' if extract_count == 1 else 's' }}</span>
       </a>
     {% endif %}
 
     {% if session.get("is_admin") %}
       <a class="ops-card" href="{{ url_for('admin_panel') }}">
         <strong>Admin</strong>
-        <span class="tile-desc">Repair hidden content, register extracts, and maintain the local JSON data set.</span>
       </a>
     {% endif %}
   </div>
 
-  <section class="content-summary-grid">
-    <article class="metric-card">
-      <span class="metric-label">Checklist count</span>
-      <strong>{{ checklist_count }}</strong>
-    </article>
-    <article class="metric-card">
-      <span class="metric-label">Extract count</span>
-      <strong>{{ extract_count }}</strong>
-    </article>
-    <article class="metric-card">
-      <span class="metric-label">Quick reference</span>
-      <strong>{{ quick_ref_count }}</strong>
-    </article>
-    <article class="status-panel">
-      <span class="metric-label">System posture</span>
-      <div class="document-status-row">
-        <span class="status-chip ok">Content source: Local EQRF</span>
-        <span class="status-chip ok">External links: Disabled</span>
-        <span class="status-chip ok">Mode: Operational</span>
-      </div>
-    </article>
-  </section>
-
   {% if not has_checklists and not has_extracts and not home_pdfs %}
     <section class="empty-state">
-      <p class="eyebrow">No published content</p>
       <h3>No active EQRF content is currently published.</h3>
       {% if session.get("is_admin") %}
-        <p>Open Admin to register extracts or checklists.</p>
         <a class="btn success" href="{{ url_for('admin_panel') }}">Open Admin</a>
       {% endif %}
     </section>
@@ -74,7 +42,6 @@
   <section class="ops-panel">
     <div class="panel-heading">
       <div>
-        <p class="eyebrow">Pinned reference</p>
         <h3>Quick Reference</h3>
       </div>
     </div>
@@ -82,7 +49,6 @@
       {% for pdf in home_pdfs %}
         <a class="ops-card quick-ref-card" href="{{ url_for('extracts_viewer', category='--', filename=pdf.filename) }}">
           <strong>{{ pdf.title }}</strong>
-          <span class="tile-meta">{{ pdf.page_count }} page{{ '' if pdf.page_count == 1 else 's' }} / {{ pdf.orientation|upper }}</span>
         </a>
       {% endfor %}
     </div>

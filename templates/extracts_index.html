@@ -5,42 +5,26 @@
 <section class="page-shell">
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Document library</p>
       <h2 class="page-title">Extracts</h2>
-      <p class="page-copy">Local operational PDFs and rendered JPG extracts grouped by category.</p>
     </div>
   </div>
 
   {% if categories or root_files %}
-    <div class="content-summary-grid compact">
-      <article class="metric-card">
-        <span class="metric-label">Published extracts</span>
-        <strong>{{ extract_count }}</strong>
-      </article>
-    </div>
-
     <div class="document-grid">
       {% for category, value in categories.items() %}
         <a class="extract-card folder" href="{{ url_for('extracts_category', subpath=category) }}">
           <strong>{{ category }}</strong>
-          <span class="tile-meta">Open verified local document group</span>
         </a>
       {% endfor %}
 
       {% for pdf in root_files %}
         <a class="extract-card pdf" href="{{ url_for('extracts_viewer', category=pdf.category, filename=pdf.filename) }}">
           <strong>{{ pdf.title }}</strong>
-          <span class="tile-meta">{{ pdf.page_count }} page{{ '' if pdf.page_count == 1 else 's' }} / {{ pdf.orientation|upper }}</span>
-          <span class="document-status-row">
-            <span class="status-chip ok">LOCAL PDF</span>
-            <span class="status-chip ok">RENDERED</span>
-          </span>
         </a>
       {% endfor %}
     </div>
   {% else %}
     <section class="empty-state">
-      <p class="eyebrow">No published extracts</p>
       <h3>No published EQRF extracts available.</h3>
       {% if session.get("is_admin") %}
         <a class="btn success" href="{{ url_for('admin_panel') }}">Open Admin</a>

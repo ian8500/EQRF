@@ -5,9 +5,7 @@
 <section class="page-shell">
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Checklist group</p>
       <h2 class="page-title">{{ parent.replace('/', ' / ') }}</h2>
-      <p class="page-copy">Choose the next operational checklist or subcategory.</p>
     </div>
   </div>
 
@@ -25,34 +23,24 @@
 
   {% if sibling_items %}
     <aside class="category-nav-panel">
-      <span class="metric-label">Current layer</span>
       <div class="category-nav-list">
         {% for sibling in sibling_items %}
-          <a href="{{ sibling.url }}">{{ sibling.label }} <span>{{ sibling.kind }}</span></a>
+          <a href="{{ sibling.url }}">{{ sibling.label }}</a>
         {% endfor %}
       </div>
     </aside>
   {% endif %}
 
   {% if subcategories %}
-    <div class="content-summary-grid compact">
-      <article class="metric-card">
-        <span class="metric-label">Published below</span>
-        <strong>{{ checklist_count }}</strong>
-      </article>
-    </div>
-
     <div class="button-group">
       {% for name, value in subcategories.items() %}
         <a class="command-card" href="{{ url_for('checklist_category', category=parent ~ '/' ~ name) }}">
           <strong>{{ name }}</strong>
-          <span class="tile-meta">{{ 'Open nested checklist group' if value is mapping else 'Open operational checklist' }}</span>
         </a>
       {% endfor %}
     </div>
   {% else %}
     <section class="empty-state">
-      <p class="eyebrow">No published checklists</p>
       <h3>No published EQRF checklists available in this group.</h3>
       <a class="btn" href="{{ url_for('checklist_index') }}">Back to Checklists</a>
     </section>

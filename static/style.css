@@ -734,27 +734,6 @@ button[type="submit"]:hover {
   line-height: 0.9;
 }
 
-.content-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.content-summary-grid.compact {
-  grid-template-columns: minmax(180px, 320px);
-}
-
-.status-panel {
-  display: grid;
-  gap: 12px;
-  min-height: 112px;
-  padding: 16px;
-  border: 1px solid rgba(124, 216, 255, 0.24);
-  border-radius: var(--radius-lg);
-  background: rgba(6, 18, 29, 0.74);
-  box-shadow: var(--shadow);
-}
-
 .empty-state {
   display: grid;
   gap: 12px;
@@ -1284,7 +1263,6 @@ th {
 :root.theme-day .extract-card,
 :root.theme-day .card,
 :root.theme-day .metric-card,
-:root.theme-day .status-panel,
 :root.theme-day .empty-state {
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(231, 240, 244, 0.96)),
@@ -1383,7 +1361,6 @@ html.theme-night body {
   .ops-grid,
   .admin-grid,
   .overview-grid,
-  .content-summary-grid,
   .editor-grid,
   .health-grid {
     grid-template-columns: 1fr;
