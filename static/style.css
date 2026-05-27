@@ -1365,14 +1365,6 @@ th {
   background: rgba(255, 255, 255, 0.04);
 }
 
-.public-metadata {
-  margin-top: 10px;
-}
-
-.public-metadata span {
-  font-size: 0.78rem;
-}
-
 .audit-mini-list {
   display: grid;
   gap: 10px;

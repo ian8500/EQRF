@@ -20,12 +20,6 @@
       {% for pdf in root_files %}
         <a class="extract-card pdf" href="{{ url_for('extracts_viewer', category=pdf.category, filename=pdf.filename) }}">
           <strong>{{ pdf.title }}</strong>
-          <span class="metadata-row public-metadata">
-            <span>Version {{ pdf.metadata.version }}</span>
-            <span>Effective {{ pdf.metadata.effective_date }}</span>
-            <span>Review {{ pdf.metadata.review_date }}</span>
-            <span>Expiry {{ pdf.metadata.expiry_date }}</span>
-          </span>
         </a>
       {% endfor %}
     </div>

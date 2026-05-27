@@ -558,6 +558,87 @@ def test_checklist_viewer_renders_breadcrumb_for_nested_category(client, isolate
     assert b'Runway Change' in response.data
 
 
+def test_public_extract_viewer_hides_governance_metadata(client, isolated_content):
+    jpgs = isolated_content.publish_pdf('Governed.pdf')
+    isolated_content.extracts.update({
+        'Tower': {
+            'GMC': {
+                '__files__': [{
+                    'pdf': 'Governed.pdf',
+                    'jpgs': jpgs,
+                    'title': 'Governed Extract',
+                    'version': '3.2',
+                    'effective_date': '2026-05-27',
+                    'expiry_date': '2026-12-31',
+                    'review_date': '2026-10-01',
+                    'owner': 'Ops',
+                    'status': 'published',
+                }],
+            },
+        },
+    })
+
+    response = client.get('/viewer/Tower/GMC/Governed.pdf')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    for text in ['Version', 'Effective', 'Expiry', 'Review', 'Owner', 'Published', '3.2', '2026-05-27']:
+        assert text not in html
+
+
+def test_public_checklist_view_hides_governance_metadata(client, isolated_content):
+    upsert_checklist_with_metadata(
+        isolated_content.checklists,
+        'Tower/GMC/Runway Change',
+        ['Line up'],
+        {
+            'title': 'Runway Change',
+            'version': '2.0',
+            'effective_date': '2026-05-27',
+            'expiry_date': '2026-12-31',
+            'review_date': '2026-10-01',
+            'owner': 'Ops',
+            'status': 'published',
+        },
+    )
+
+    response = client.get('/checklists/Tower/GMC/Runway%20Change')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    for text in ['Version', 'Effective', 'Expiry', 'Review', 'Owner', 'Published', '2.0', '2026-05-27']:
+        assert text not in html
+
+
+def test_admin_pages_still_show_metadata_fields(client, monkeypatch):
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+    client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
+
+    dashboard = client.get('/admin').get_data(as_text=True)
+    checklist_edit = client.get('/admin/checklists/new').get_data(as_text=True)
+
+    for html in [dashboard, checklist_edit]:
+        assert 'Version' in html
+        assert 'Effective date' in html or 'Effective' in html
+        assert 'Expiry date' in html or 'Expiry' in html
+        assert 'Review date' in html or 'Review' in html
+        assert 'Owner' in html
+
+
+def test_public_viewer_pages_render_single_breadcrumb(client, isolated_content):
+    jpgs = isolated_content.publish_pdf('Valid.pdf')
+    isolated_content.extracts.update({'Tower': {'GMC': {'__files__': [{'pdf': 'Valid.pdf', 'jpgs': jpgs, 'title': 'Valid Extract'}]}}})
+    isolated_content.checklists.update({'Tower': {'GMC': {'Runway Change': ['Line up']}}})
+
+    extract_html = client.get('/viewer/Tower/GMC/Valid.pdf').get_data(as_text=True)
+    checklist_html = client.get('/checklists/Tower/GMC/Runway%20Change').get_data(as_text=True)
+
+    assert extract_html.count('class="breadcrumb"') == 1
+    assert checklist_html.count('class="breadcrumb"') == 1
+    assert 'Tower / GMC / Valid Extract' not in extract_html
+    assert 'Tower / GMC / Runway Change' not in checklist_html
+
+
 def test_day_night_toggle_js_uses_localstorage():
     script = (app_module.BASE_DIR / 'static' / 'script.js').read_text(encoding='utf-8')
 

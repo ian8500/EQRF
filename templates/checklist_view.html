@@ -27,18 +27,7 @@
 
   <div id="checklist-sticky">
     <div>
-      <h2 class="checklist-title">{{ category.replace('/', ' / ') }}</h2>
-      {% if metadata %}
-        <div class="metadata-row public-metadata">
-          <span>Version {{ metadata.version }}</span>
-          <span>Effective {{ metadata.effective_date }}</span>
-          <span>Review {{ metadata.review_date }}</span>
-          <span>Expiry {{ metadata.expiry_date }}</span>
-          {% if status_label and status_label != 'Published' %}
-            <span class="status-chip {{ status_state }}">{{ status_label }}</span>
-          {% endif %}
-        </div>
-      {% endif %}
+      <h2 class="checklist-title">{{ category.split('/')[-1] }}</h2>
       <div class="checklist-progress" id="checklist-progress">0 / 0 complete</div>
     </div>
     <div class="checklist-action-bar">
