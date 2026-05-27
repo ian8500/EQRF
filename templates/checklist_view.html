@@ -6,9 +6,24 @@
   {% if breadcrumbs %}
     <nav class="breadcrumb" aria-label="Checklist breadcrumb">
       {% for crumb in breadcrumbs %}
-        <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+        {% if crumb.url %}
+          <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+        {% else %}
+          <span>{{ crumb.label }}</span>
+        {% endif %}
       {% endfor %}
     </nav>
+  {% endif %}
+
+  {% if sibling_items %}
+    <aside class="category-nav-panel">
+      <span class="metric-label">Current layer</span>
+      <div class="category-nav-list">
+        {% for sibling in sibling_items %}
+          <a href="{{ sibling.url }}">{{ sibling.label }} <span>{{ sibling.kind }}</span></a>
+        {% endfor %}
+      </div>
+    </aside>
   {% endif %}
 
   <div id="checklist-sticky">
@@ -34,7 +49,7 @@
         <li class="checklist-section">{{ item.replace('-', '').strip() }}</li>
       {% else %}
         <li class="checklist-row">
-          <label{% if item == "CAT A ONLY" or "CAT A ONLY" in item %} class="cat-a"{% endif %}>
+          <label{% if is_critical_checklist_line(item) %} class="cat-a critical-strip cat-a-critical"{% endif %}>
             <input type="checkbox" class="checklist-item">
             <span>{{ item }}</span>
           </label>

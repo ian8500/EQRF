@@ -71,20 +71,39 @@ function saveChecklistState() {
   }
   
   
-  // === DARK MODE TOGGLE ===
-  function loadTheme() {
-    const savedMode = localStorage.getItem("theme");
-    if (savedMode === "dark") {
-      document.body.classList.add("dark");
-    } else {
-      document.body.classList.remove("dark");
-    }
+  // === DAY / NIGHT MODE TOGGLE ===
+  function getSavedTheme() {
+    const current = localStorage.getItem("eqrf-theme") || localStorage.getItem("theme");
+    if (current === "day" || current === "light") return "day";
+    return "night";
   }
-  
+
+  function setTheme(mode) {
+    const resolved = mode === "day" ? "day" : "night";
+    const root = document.documentElement;
+    root.classList.remove("theme-day", "theme-night", "night-mode");
+    root.classList.add(resolved === "day" ? "theme-day" : "theme-night");
+    if (resolved === "night") root.classList.add("night-mode");
+    localStorage.setItem("eqrf-theme", resolved);
+    localStorage.setItem("theme", resolved);
+    localStorage.setItem("nightMode", resolved === "night" ? "on" : "off");
+    updateThemeToggleText(resolved);
+  }
+
+  function updateThemeToggleText(mode) {
+    const toggle = document.getElementById("theme-toggle");
+    if (!toggle) return;
+    toggle.textContent = mode === "day" ? "Day Mode" : "Night Mode";
+    toggle.setAttribute("aria-pressed", mode === "night" ? "true" : "false");
+  }
+
+  function loadTheme() {
+    setTheme(getSavedTheme());
+  }
+
   function toggleTheme() {
-    document.body.classList.toggle("dark");
-    const currentMode = document.body.classList.contains("dark") ? "dark" : "light";
-    localStorage.setItem("theme", currentMode);
+    const current = document.documentElement.classList.contains("theme-day") ? "day" : "night";
+    setTheme(current === "day" ? "night" : "day");
   }
   
   
@@ -125,7 +144,7 @@ function saveChecklistState() {
   
     // Theme
     loadTheme();
-    const modeToggle = document.getElementById("mode-toggle");
+    const modeToggle = document.getElementById("theme-toggle");
     if (modeToggle) {
       modeToggle.addEventListener("click", toggleTheme);
     }

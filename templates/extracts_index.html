@@ -14,7 +14,7 @@
   {% if categories or root_files %}
     <div class="content-summary-grid compact">
       <article class="metric-card">
-        <span class="tile-code">Published extracts</span>
+        <span class="metric-label">Published extracts</span>
         <strong>{{ extract_count }}</strong>
       </article>
     </div>
@@ -22,7 +22,6 @@
     <div class="document-grid">
       {% for category, value in categories.items() %}
         <a class="extract-card folder" href="{{ url_for('extracts_category', subpath=category) }}">
-          <span class="tile-code">Category</span>
           <strong>{{ category }}</strong>
           <span class="tile-meta">Open verified local document group</span>
         </a>
@@ -30,7 +29,6 @@
 
       {% for pdf in root_files %}
         <a class="extract-card pdf" href="{{ url_for('extracts_viewer', category=pdf.category, filename=pdf.filename) }}">
-          <span class="tile-code">Quick reference</span>
           <strong>{{ pdf.title }}</strong>
           <span class="tile-meta">{{ pdf.page_count }} page{{ '' if pdf.page_count == 1 else 's' }} / {{ pdf.orientation|upper }}</span>
           <span class="document-status-row">
@@ -44,7 +42,7 @@
     <section class="empty-state">
       <p class="eyebrow">No published extracts</p>
       <h3>No published EQRF extracts available.</h3>
-      {% if session.get('logged_in') %}
+      {% if session.get("is_admin") %}
         <a class="btn success" href="{{ url_for('admin_panel') }}">Open Admin</a>
       {% endif %}
     </section>

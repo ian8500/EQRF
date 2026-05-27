@@ -14,15 +14,30 @@
   {% if breadcrumbs %}
     <nav class="breadcrumb" aria-label="Checklist breadcrumb">
       {% for crumb in breadcrumbs %}
-        <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+        {% if crumb.url %}
+          <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+        {% else %}
+          <span>{{ crumb.label }}</span>
+        {% endif %}
       {% endfor %}
     </nav>
+  {% endif %}
+
+  {% if sibling_items %}
+    <aside class="category-nav-panel">
+      <span class="metric-label">Current layer</span>
+      <div class="category-nav-list">
+        {% for sibling in sibling_items %}
+          <a href="{{ sibling.url }}">{{ sibling.label }} <span>{{ sibling.kind }}</span></a>
+        {% endfor %}
+      </div>
+    </aside>
   {% endif %}
 
   {% if subcategories %}
     <div class="content-summary-grid compact">
       <article class="metric-card">
-        <span class="tile-code">Published below</span>
+        <span class="metric-label">Published below</span>
         <strong>{{ checklist_count }}</strong>
       </article>
     </div>
@@ -30,7 +45,6 @@
     <div class="button-group">
       {% for name, value in subcategories.items() %}
         <a class="command-card" href="{{ url_for('checklist_category', category=parent ~ '/' ~ name) }}">
-          <span class="tile-code">{{ 'Folder' if value is mapping else 'Checklist' }}</span>
           <strong>{{ name }}</strong>
           <span class="tile-meta">{{ 'Open nested checklist group' if value is mapping else 'Open operational checklist' }}</span>
         </a>

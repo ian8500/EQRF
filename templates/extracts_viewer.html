@@ -20,9 +20,24 @@
 {% if breadcrumbs %}
   <nav class="breadcrumb" aria-label="Extract breadcrumb">
     {% for crumb in breadcrumbs %}
-      <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+      {% if crumb.url %}
+        <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+      {% else %}
+        <span>{{ crumb.label }}</span>
+      {% endif %}
     {% endfor %}
   </nav>
+{% endif %}
+
+{% if sibling_items %}
+  <aside class="category-nav-panel">
+    <span class="metric-label">Current layer</span>
+    <div class="category-nav-list">
+      {% for sibling in sibling_items %}
+        <a href="{{ sibling.url }}">{{ sibling.label }} <span>{{ sibling.kind }}</span></a>
+      {% endfor %}
+    </div>
+  </aside>
 {% endif %}
 
 <div id="toolbar" class="sticky-toolbar">

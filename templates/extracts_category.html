@@ -14,16 +14,30 @@
   {% if breadcrumbs %}
     <nav class="breadcrumb" aria-label="Extract breadcrumb">
       {% for crumb in breadcrumbs %}
-        <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+        {% if crumb.url %}
+          <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+        {% else %}
+          <span>{{ crumb.label }}</span>
+        {% endif %}
       {% endfor %}
     </nav>
+  {% endif %}
+
+  {% if sibling_items %}
+    <aside class="category-nav-panel">
+      <span class="metric-label">Current layer</span>
+      <div class="category-nav-list">
+        {% for sibling in sibling_items %}
+          <a href="{{ sibling.url }}">{{ sibling.label }} <span>{{ sibling.kind }}</span></a>
+        {% endfor %}
+      </div>
+    </aside>
   {% endif %}
 
   {% if subcategories or items %}
     <div class="document-grid">
       {% for key in subcategories.keys() %}
         <a class="extract-card folder" href="{{ url_for('extracts_category', subpath=(category ~ '/' ~ key).lstrip('/')) }}">
-          <span class="tile-code">Category</span>
           <strong>{{ key }}</strong>
           <span class="tile-meta">Open verified local document group</span>
         </a>
@@ -31,7 +45,6 @@
 
       {% for item in items %}
         <a class="extract-card pdf" href="{{ url_for('extracts_viewer', category=category, filename=item.filename) }}">
-          <span class="tile-code">PDF extract</span>
           <strong>{{ item.label }}</strong>
           <span class="tile-meta">{{ item.page_count }} page{{ '' if item.page_count == 1 else 's' }} / {{ item.orientation|upper }}</span>
           <span class="document-status-row">

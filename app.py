@@ -85,6 +85,7 @@ def utility_processor():
     return dict(
         enumerate=enumerate,
         file_entry_name=file_entry_name,
+        is_critical_checklist_line=is_critical_checklist_line,
     )
 
 # ---------------------- Globals (SSE) ---------------------- #
@@ -434,6 +435,11 @@ def flatten_checklist_paths(checklists: Any) -> List[Dict[str, Any]]:
 
     visit(checklists, '')
     return paths
+
+
+def is_critical_checklist_line(line: Any) -> bool:
+    text = str(line or '').upper()
+    return 'CAT A ONLY' in text or 'CAT A MIN' in text
 
 
 def _flatten_all_checklist_paths(checklists: Any) -> List[Dict[str, Any]]:
@@ -1014,6 +1020,10 @@ def is_logged_in():
     return bool(session.get('logged_in'))
 
 
+def is_admin():
+    return bool(session.get('is_admin'))
+
+
 def _safe_redirect_target(target: Optional[str]) -> str:
     """Prevent open redirects by only allowing intra-site destinations."""
 
@@ -1027,7 +1037,7 @@ def login_required(func):
 
     @wraps(func)
     def wrapper(*args, **kwargs):
-        if is_logged_in():
+        if is_admin():
             return func(*args, **kwargs)
 
         flash('Please log in to continue.', 'error')
@@ -1043,17 +1053,67 @@ def trigger_client_refresh() -> None:
     refresh_event.set()
 
 
-def _breadcrumb_items(root_label: str, root_endpoint: str, path: str, endpoint: str, param_name: str) -> List[Dict[str, str]]:
+def _breadcrumb_items(root_label: str, root_endpoint: str, path: str, endpoint: str, param_name: str) -> List[Dict[str, Optional[str]]]:
     items = [{'label': root_label, 'url': url_for(root_endpoint)}]
     parts = safe_path_parts(path)
     current: List[str] = []
-    for part in parts:
+    for index, part in enumerate(parts):
         current.append(part)
         items.append({
             'label': part,
-            'url': url_for(endpoint, **{param_name: '/'.join(current)}),
+            'url': None if index == len(parts) - 1 else url_for(endpoint, **{param_name: '/'.join(current)}),
         })
     return items
+
+
+def _breadcrumb_with_leaf(items: List[Dict[str, Optional[str]]], label: str) -> List[Dict[str, Optional[str]]]:
+    return [*items, {'label': label, 'url': None}]
+
+
+def _checklist_sibling_items(tree: Any, parent_path: str) -> List[Dict[str, str]]:
+    parent = _get_node_for_path(tree, safe_path_parts(parent_path)) if parent_path else tree
+    if not isinstance(parent, dict):
+        return []
+
+    siblings: List[Dict[str, str]] = []
+    for name, value in parent.items():
+        if isinstance(value, dict) and checklist_group_has_content(value):
+            siblings.append({
+                'label': name,
+                'kind': 'Group',
+                'url': url_for('checklist_category', category=f'{parent_path}/{name}'.strip('/')),
+            })
+        elif is_valid_checklist_node(value):
+            siblings.append({
+                'label': name,
+                'kind': 'Checklist',
+                'url': url_for('checklist_category', category=f'{parent_path}/{name}'.strip('/')),
+            })
+    return siblings
+
+
+def _extract_sibling_items(tree: Any, category: str) -> List[Dict[str, str]]:
+    node = _get_node_for_path(tree, safe_path_parts(category))
+    if not isinstance(node, dict):
+        return []
+
+    siblings: List[Dict[str, str]] = []
+    for name, value in node.items():
+        if name == '__files__':
+            continue
+        if extract_group_has_content(value):
+            siblings.append({
+                'label': name,
+                'kind': 'Category',
+                'url': url_for('extracts_category', subpath=f'{category}/{name}'.strip('/')),
+            })
+    for item in public_extract_items_for_node(node, category):
+        siblings.append({
+            'label': item['title'],
+            'kind': 'PDF',
+            'url': url_for('extracts_viewer', category=category, filename=item['filename']),
+        })
+    return siblings
 
 
 def _unavailable(title: str, message: str, back_label: str, back_endpoint: str, status: int = 404):
@@ -1074,6 +1134,7 @@ def login():
         expected = os.environ.get('EQRF_PASSWORD', SETTINGS.admin_password)
         if password == expected:
             session['logged_in'] = True
+            session['is_admin'] = True
             flash('Logged in.', 'success')
             next_url = _safe_redirect_target(request.form.get('next'))
             return redirect(next_url)
@@ -1169,12 +1230,15 @@ def checklist_category(category):
     data = filtered_checklist_tree(get_checklists()) or {}
     current = _get_node_for_path(data, safe_path_parts(normalised))
     if isinstance(current, dict) and checklist_group_has_content(current):
+        parts = safe_path_parts(normalised)
+        parent_path = '/'.join(parts[:-1]) if len(parts) > 1 else ''
         return render_template(
             'checklist_list.html',
             parent=normalised,
             subcategories=current,
             breadcrumbs=_breadcrumb_items('Checklists', 'checklist_index', normalised, 'checklist_category', 'category'),
             checklist_count=len(flatten_checklist_paths(current)),
+            sibling_items=_checklist_sibling_items(data, parent_path),
         )
     if is_valid_checklist_node(current):
         parts = safe_path_parts(normalised)
@@ -1185,6 +1249,7 @@ def checklist_category(category):
             items=current,
             breadcrumbs=_breadcrumb_items('Checklists', 'checklist_index', normalised, 'checklist_category', 'category'),
             parent_path=parent_path,
+            sibling_items=_checklist_sibling_items(data, parent_path),
         )
     return _unavailable('Checklist unavailable', 'This checklist is not currently published in the local EQRF content set.', 'Back to Checklists', 'checklist_index')
 
@@ -1243,6 +1308,7 @@ def extracts_category(subpath):
         node=node,
         subcategories=subcategories,
         breadcrumbs=_breadcrumb_items('Extracts', 'extracts_index', normalised, 'extracts_category', 'subpath'),
+        sibling_items=_extract_sibling_items(extracts, normalised),
     )
 
 
@@ -1250,6 +1316,11 @@ def extracts_category(subpath):
 @app.route('/viewer/<path:category>/<path:filename>')
 def extracts_viewer(category, filename):
     extracts = get_extracts()
+    if '/' in filename:
+        extra_parts = [part for part in filename.split('/') if part]
+        if len(extra_parts) > 1:
+            category = f"{category}/{'/'.join(extra_parts[:-1])}"
+            filename = extra_parts[-1]
     try:
         normalised_category = normalise_category_path(category)
     except ValueError:
@@ -1295,13 +1366,23 @@ def extracts_viewer(category, filename):
         'page_count': int(item.get('page_count') or len(jpgs)),
         'category': normalised_category,
     }
-    parts = safe_path_parts(normalised_category)
     parent_path = normalised_category
+    if normalised_category == '--':
+        breadcrumbs = [
+            {'label': 'Extracts', 'url': url_for('extracts_index')},
+            {'label': item['title'], 'url': None},
+        ]
+    else:
+        breadcrumbs = _breadcrumb_items('Extracts', 'extracts_index', normalised_category, 'extracts_category', 'subpath')
+        if breadcrumbs:
+            breadcrumbs[-1]['url'] = url_for('extracts_category', subpath=normalised_category)
+        breadcrumbs = _breadcrumb_with_leaf(breadcrumbs, item['title'])
     return render_template(
         'extracts_viewer.html',
         item=item,
-        breadcrumbs=_breadcrumb_items('Extracts', 'extracts_index', normalised_category, 'extracts_category', 'subpath'),
+        breadcrumbs=breadcrumbs,
         parent_path=parent_path,
+        sibling_items=_extract_sibling_items(filtered_extract_tree(extracts) or {}, normalised_category),
     )
 
 
@@ -1661,6 +1742,7 @@ def admin_checklist_preview():
             items=[str(line).strip() for line in current if str(line).strip()],
             breadcrumbs=_breadcrumb_items('Checklists', 'checklist_index', normalised, 'checklist_category', 'category'),
             parent_path='/'.join(parts[:-1]) if len(parts) > 1 else '',
+            sibling_items=_checklist_sibling_items(filtered_checklist_tree(get_checklists()) or {}, '/'.join(parts[:-1]) if len(parts) > 1 else ''),
         )
     except ValueError as exc:
         flash(str(exc), 'error')

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="theme-night">
 <head>
   <meta charset="UTF-8" />
   <title>{% block title %}Glasgow E-QRF{% endblock %}</title>
@@ -8,11 +8,17 @@
   <!-- Main styles -->
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='atc-ops') }}">
 
-  <!-- Night mode before paint (avoid white flash) -->
+  <!-- Theme before paint (avoid palette flash) -->
   <script>
   (function () {
-    if (localStorage.getItem('nightMode') === 'on') {
-      document.documentElement.classList.add('night-mode');
+    var stored = localStorage.getItem('eqrf-theme') || localStorage.getItem('theme');
+    var legacyNight = localStorage.getItem('nightMode') === 'on';
+    var mode = stored === 'day' || stored === 'light' ? 'day' : (legacyNight ? 'night' : 'night');
+    var root = document.documentElement;
+    root.classList.remove('theme-day', 'theme-night', 'night-mode');
+    root.classList.add(mode === 'day' ? 'theme-day' : 'theme-night');
+    if (mode === 'night') {
+      root.classList.add('night-mode');
     }
   })();
   </script>
@@ -48,8 +54,8 @@
       <div class="top-nav">
         <a class="nav-button {{ 'active-nav' if active_section == 'HOME' else '' }}" href="{{ url_for('home') }}">Home</a>
         <button class="nav-button" type="button" onclick="history.back();">Back</button>
-        <button class="nav-button" id="night-toggle" type="button">Display</button>
-        {% if session.get('logged_in') %}
+        <button class="nav-button" id="theme-toggle" type="button">Night Mode</button>
+        {% if session.get("is_admin") %}
           <a class="nav-button {{ 'active-nav' if active_section == 'ADMIN' else '' }}" href="{{ url_for('admin_panel') }}">Admin</a>
           <a class="nav-button" href="{{ url_for('logout') }}">Logout</a>
         {% else %}
@@ -58,8 +64,6 @@
       </div>
       <div class="status-strip" aria-label="System status">
         <span class="status-pill section">ACTIVE: {{ active_section }}</span>
-        <span class="status-pill">OPS MODE: NORMAL</span>
-        <span class="status-pill data">DATA: LOCAL</span>
         <span class="status-pill local-only">LOCAL CONTENT ONLY</span>
         <span class="status-pill time" id="local-time">LOCAL TIME</span>
       </div>
@@ -79,23 +83,9 @@
     {% block content %}{% endblock %}
   </main>
 
-  <!-- Night mode toggle persistence -->
+  <!-- Local time display -->
   <script>
   document.addEventListener('DOMContentLoaded', function () {
-    const toggleBtn = document.getElementById('night-toggle');
-    if (toggleBtn) {
-      toggleBtn.addEventListener('click', function (e) {
-        e.preventDefault();
-        const el = document.documentElement;
-        el.classList.toggle('night-mode');
-        if (el.classList.contains('night-mode')) {
-          localStorage.setItem('nightMode', 'on');
-        } else {
-          localStorage.removeItem('nightMode');
-        }
-      });
-    }
-
     const localTime = document.getElementById('local-time');
     function updateLocalTime() {
       if (!localTime) return;

@@ -9,7 +9,7 @@
     <p>{{ message }}</p>
     <div class="admin-actions">
       <a class="btn" href="{{ back_url }}">{{ back_label }}</a>
-      {% if session.get('logged_in') %}
+      {% if session.get("is_admin") %}
         <a class="btn success" href="{{ url_for('admin_panel') }}">Open Admin</a>
       {% endif %}
     </div>

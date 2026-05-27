@@ -95,9 +95,29 @@ def test_login_works_with_eqrf_password(client, monkeypatch):
 
     assert response.status_code == 302
     assert response.headers['Location'].endswith('/admin')
+    with client.session_transaction() as session:
+        assert session['logged_in'] is True
+        assert session['is_admin'] is True
     admin_response = client.get('/admin')
     assert admin_response.status_code == 200
     assert b'Content management console' in admin_response.data
+
+
+def test_admin_link_hidden_when_logged_out(client):
+    response = client.get('/')
+
+    assert response.status_code == 200
+    assert b'>Admin<' not in response.data
+
+
+def test_admin_link_appears_after_admin_login(client, monkeypatch):
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+
+    client.post('/login', data={'password': 'test-pass', 'next': '/'})
+    response = client.get('/')
+
+    assert response.status_code == 200
+    assert b'>Admin<' in response.data
 
 
 def test_known_static_jpg_route_works_if_available(client):
@@ -211,6 +231,15 @@ def test_home_hides_checklists_card_when_no_valid_checklists(client, isolated_co
     assert b'No active EQRF content is currently published.' in response.data
 
 
+def test_home_page_does_not_show_command_labels(client):
+    response = client.get('/')
+
+    assert response.status_code == 200
+    assert b'COMMAND 01' not in response.data
+    assert b'COMMAND 02' not in response.data
+    assert b'COMMAND 03' not in response.data
+
+
 def test_empty_extract_folders_and_missing_assets_are_hidden(client, isolated_content):
     isolated_content.extracts.update({
         'Empty': {},
@@ -287,6 +316,79 @@ def test_viewer_rejects_missing_local_assets_gracefully(client, isolated_content
     assert response.status_code == 404
     assert b'Extract unavailable' in response.data
     assert b'local source PDF is missing' in response.data
+
+
+def test_checklist_cat_a_min_line_renders_with_critical_class(client, isolated_content):
+    isolated_content.checklists.update({
+        'Tower': {
+            'GMC': {
+                'Runway Change': ['[CAT A MIN] Runway occupancy confirmed'],
+            },
+        },
+    })
+
+    response = client.get('/checklists/Tower/GMC/Runway%20Change')
+
+    assert response.status_code == 200
+    assert b'cat-a-critical' in response.data
+    assert b'[CAT A MIN] Runway occupancy confirmed' in response.data
+
+
+def test_extract_viewer_renders_breadcrumb_for_nested_category(client, isolated_content):
+    jpgs = isolated_content.publish_pdf('Valid.pdf')
+    isolated_content.extracts.update({
+        'Tower': {
+            'GMC': {
+                '__files__': [{'pdf': 'Valid.pdf', 'jpgs': jpgs, 'title': 'Valid Extract'}],
+            },
+        },
+    })
+
+    response = client.get('/viewer/Tower/GMC/Valid.pdf')
+
+    assert response.status_code == 200
+    assert b'Extracts' in response.data
+    assert b'Tower' in response.data
+    assert b'GMC' in response.data
+    assert b'Valid Extract' in response.data
+
+
+def test_checklist_viewer_renders_breadcrumb_for_nested_category(client, isolated_content):
+    isolated_content.checklists.update({
+        'Tower': {
+            'GMC': {
+                'Runway Change': ['Runway selected'],
+            },
+        },
+    })
+
+    response = client.get('/checklists/Tower/GMC/Runway%20Change')
+
+    assert response.status_code == 200
+    assert b'Checklists' in response.data
+    assert b'Tower' in response.data
+    assert b'GMC' in response.data
+    assert b'Runway Change' in response.data
+
+
+def test_day_night_toggle_js_uses_localstorage():
+    script = (app_module.BASE_DIR / 'static' / 'script.js').read_text(encoding='utf-8')
+
+    assert 'localStorage' in script
+    assert 'eqrf-theme' in script
+    assert 'theme-day' in script
+    assert 'theme-night' in script
+    assert 'Day Mode' in script
+    assert 'Night Mode' in script
+
+
+def test_public_pages_contain_no_emoji_icons(client):
+    emoji_pattern = re.compile('[\U0001f300-\U0001faff\u2600-\u27bf]')
+
+    for path in ['/', '/checklists', '/extracts']:
+        response = client.get(path)
+        assert response.status_code == 200
+        assert emoji_pattern.search(response.get_data(as_text=True)) is None
 
 
 def test_public_pages_do_not_emit_external_or_invalid_content_links(client, isolated_content):
