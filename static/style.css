@@ -689,19 +689,18 @@ button[type="submit"]:hover {
   align-items: start;
 }
 
-.pdf-page-frame {
+.pdf-page {
   position: relative;
   display: grid;
   place-items: center;
   margin: 0;
-  overflow: hidden;
   border: 1px solid rgba(124, 216, 255, 0.2);
   border-radius: var(--radius);
   background: #f8fafb;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
 }
 
-.pdf-page-frame figcaption {
+.pdf-page figcaption {
   position: absolute;
   top: 8px;
   left: 8px;
@@ -715,18 +714,45 @@ button[type="submit"]:hover {
   font-weight: 850;
 }
 
-.pdf-page-image,
-.extract-image {
-  position: absolute;
-  top: 50%;
-  left: 50%;
+.pdf-page-surface {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: calc(var(--radius) - 1px);
+  background: #fff;
+}
+
+.pdf-canvas {
   display: block;
   max-width: none;
-  height: auto;
-  transform-origin: center center;
-  content-visibility: auto;
-  user-select: none;
-  -webkit-user-drag: none;
+}
+
+.pdf-text-layer,
+.pdf-highlight-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pdf-text-layer {
+  z-index: 2;
+  overflow: hidden;
+  opacity: 0.01;
+  color: transparent;
+}
+
+.pdf-text-layer span {
+  position: absolute;
+  display: inline-block;
+  white-space: pre;
+  transform-origin: 0 0;
+}
+
+.pdf-text-layer span.search-match {
+  opacity: 1;
+  color: transparent;
+  background: rgba(255, 200, 87, 0.55);
+  mix-blend-mode: multiply;
 }
 
 .viewer-control-active {
@@ -804,11 +830,11 @@ button[type="submit"]:hover {
   background: var(--green-soft);
 }
 
-.pdf-page-frame.search-hit {
+.pdf-page.search-hit {
   border-color: rgba(255, 200, 87, 0.68);
 }
 
-.pdf-page-frame.search-current {
+.pdf-page.search-current {
   border-color: var(--green);
   box-shadow: 0 0 0 3px rgba(82, 255, 157, 0.22), 0 18px 50px rgba(0, 0, 0, 0.4);
 }
@@ -1532,7 +1558,7 @@ th {
   background: rgba(217, 228, 235, 0.72);
 }
 
-:root.theme-day .pdf-page-frame {
+:root.theme-day .pdf-page {
   border-color: rgba(28, 84, 112, 0.18);
   box-shadow: 0 16px 42px rgba(24, 57, 76, 0.2);
 }

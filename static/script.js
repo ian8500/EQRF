@@ -142,7 +142,12 @@ function saveChecklistState() {
     const state = {
       scale: 1,
       rotation: 0,
-      mode: "width"
+      mode: "custom",
+      pdf: null,
+      pageCount: 0,
+      renderToken: 0,
+      renderedPages: new Set(),
+      pageText: new Map()
     };
 
     function clamp(value) {
@@ -155,29 +160,13 @@ function saveChecklistState() {
       return {
         shell,
         scroll: document.getElementById("pdf-scroll"),
-        frames: Array.from(shell.querySelectorAll(".pdf-page-frame")),
-        images: Array.from(shell.querySelectorAll(".pdf-page-image")),
+        stack: document.getElementById("pdf-page-stack"),
+        frames: Array.from(shell.querySelectorAll(".pdf-page")),
         fitWidthButton: document.getElementById("pdf-fit-width"),
         fitHeightButton: document.getElementById("pdf-fit-height"),
         zoomIndicator: document.getElementById("pdf-zoom-indicator"),
         rotationIndicator: document.getElementById("pdf-rotation-indicator"),
         pageIndicator: document.getElementById("pdf-page-indicator")
-      };
-    }
-
-    function dimensionsFor(img, scale = state.scale, rotation = state.rotation) {
-      const naturalWidth = img.naturalWidth || Number(img.dataset.naturalWidth) || 1;
-      const naturalHeight = img.naturalHeight || Number(img.dataset.naturalHeight) || 1;
-      const imageWidth = naturalWidth * scale;
-      const imageHeight = naturalHeight * scale;
-      const rotated = rotation % 180 !== 0;
-      return {
-        imageWidth,
-        imageHeight,
-        layoutWidth: rotated ? imageHeight : imageWidth,
-        layoutHeight: rotated ? imageWidth : imageHeight,
-        naturalLayoutWidth: rotated ? naturalHeight : naturalWidth,
-        naturalLayoutHeight: rotated ? naturalWidth : naturalHeight
       };
     }
 
@@ -202,24 +191,26 @@ function saveChecklistState() {
       parts.scroll.scrollTop = Math.max(0, frame.offsetTop + (frame.offsetHeight * (context.ratio || 0)));
     }
 
-    function firstReadyImage(parts) {
-      return parts.images.find(img => img.naturalWidth && img.naturalHeight) || parts.images[0];
+    async function baseViewport() {
+      if (!state.pdf) return null;
+      const page = await state.pdf.getPage(1);
+      return page.getViewport({ scale: 1, rotation: state.rotation });
     }
 
-    function scaleForWidth(parts) {
-      const img = firstReadyImage(parts);
-      if (!img || !parts.scroll) return state.scale;
-      const dims = dimensionsFor(img, 1, state.rotation);
+    async function scaleForWidth(parts) {
+      if (!parts.scroll) return state.scale;
+      const viewport = await baseViewport();
+      if (!viewport) return state.scale;
       const available = Math.max(240, parts.scroll.clientWidth - MARGIN);
-      return clamp(available / dims.naturalLayoutWidth);
+      return clamp(available / viewport.width);
     }
 
-    function scaleForHeight(parts) {
-      const img = firstReadyImage(parts);
-      if (!img || !parts.scroll) return state.scale;
-      const dims = dimensionsFor(img, 1, state.rotation);
+    async function scaleForHeight(parts) {
+      if (!parts.scroll) return state.scale;
+      const viewport = await baseViewport();
+      if (!viewport) return state.scale;
       const available = Math.max(240, parts.scroll.clientHeight - MARGIN);
-      return clamp(available / dims.naturalLayoutHeight);
+      return clamp(available / viewport.height);
     }
 
     function updateIndicators(parts) {
@@ -234,29 +225,154 @@ function saveChecklistState() {
       updateCurrentPage(parts);
     }
 
-    function applyViewerLayout(options = {}) {
+    function escapeRegExp(value) {
+      return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+
+    function buildTextSnippet(text, query, radius = 72) {
+      const lower = text.toLowerCase();
+      const at = lower.indexOf(query.toLowerCase());
+      if (at < 0) return text.slice(0, 140);
+      const left = Math.max(0, at - radius);
+      const right = Math.min(text.length, at + query.length + radius);
+      return `${left > 0 ? "... " : ""}${text.slice(left, right).replace(/\s+/g, " ").trim()}${right < text.length ? " ..." : ""}`;
+    }
+
+    async function renderTextLayer(page, frame, viewport) {
+      if (frame.dataset.searchable !== "true") return;
+      const textLayer = frame.querySelector(".pdf-text-layer");
+      if (!textLayer) return;
+      textLayer.innerHTML = "";
+      try {
+        const content = await page.getTextContent();
+        state.pageText.set(Number(frame.dataset.pageNumber), content.items.map(item => item.str || "").join(" "));
+        content.items.forEach(item => {
+          const text = item.str || "";
+          if (!text.trim()) return;
+          const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+          const span = document.createElement("span");
+          span.textContent = text;
+          span.dataset.text = text;
+          span.style.left = `${tx[4]}px`;
+          span.style.top = `${tx[5]}px`;
+          span.style.fontSize = `${Math.max(1, Math.abs(tx[0]))}px`;
+          span.style.transform = `scaleX(${Math.max(0.4, Math.hypot(tx[0], tx[1]) / Math.max(1, Math.abs(tx[0])))})`;
+          textLayer.appendChild(span);
+        });
+      } catch (_) {
+        state.pageText.set(Number(frame.dataset.pageNumber), "");
+      }
+    }
+
+    async function renderPage(pageNumber, token) {
+      if (!state.pdf) return;
+      if (state.renderedPages.has(`${token}:${pageNumber}`)) return;
+      const parts = viewer();
+      const frame = document.querySelector(`.pdf-page[data-page-number="${pageNumber}"]`);
+      const canvas = frame?.querySelector(".pdf-canvas");
+      if (!parts || !frame || !canvas) return;
+      state.renderedPages.add(`${token}:${pageNumber}`);
+      const page = await state.pdf.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: state.scale, rotation: state.rotation });
+      const context = canvas.getContext("2d");
+      const outputScale = Math.min(window.devicePixelRatio || 1, 2);
+
+      frame.style.width = `${Math.ceil(viewport.width)}px`;
+      frame.style.minHeight = `${Math.ceil(viewport.height)}px`;
+      canvas.width = Math.floor(viewport.width * outputScale);
+      canvas.height = Math.floor(viewport.height * outputScale);
+      canvas.style.width = `${Math.ceil(viewport.width)}px`;
+      canvas.style.height = `${Math.ceil(viewport.height)}px`;
+      const textLayer = frame.querySelector(".pdf-text-layer");
+      const highlightLayer = frame.querySelector(".pdf-highlight-layer");
+      [textLayer, highlightLayer].forEach(layer => {
+        if (!layer) return;
+        layer.style.width = `${Math.ceil(viewport.width)}px`;
+        layer.style.height = `${Math.ceil(viewport.height)}px`;
+      });
+
+      const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null;
+      await page.render({ canvasContext: context, viewport, transform }).promise;
+      if (token !== state.renderToken) return;
+      frame.dataset.rendered = "true";
+      await renderTextLayer(page, frame, viewport);
+    }
+
+    async function preparePageFrames() {
+      const parts = viewer();
+      if (!parts || !parts.frames.length || !state.pdf) return;
+      const viewport = await baseViewport();
+      if (!viewport) return;
+      const width = Math.ceil(viewport.width * state.scale);
+      const height = Math.ceil(viewport.height * state.scale);
+      parts.frames.forEach(frame => {
+        delete frame.dataset.rendered;
+        frame.style.width = `${width}px`;
+        frame.style.minHeight = `${height}px`;
+        const surface = frame.querySelector(".pdf-page-surface");
+        const canvas = frame.querySelector(".pdf-canvas");
+        const textLayer = frame.querySelector(".pdf-text-layer");
+        const highlightLayer = frame.querySelector(".pdf-highlight-layer");
+        [surface, canvas, textLayer, highlightLayer].forEach(element => {
+          if (!element) return;
+          element.style.width = `${width}px`;
+          element.style.height = `${height}px`;
+        });
+      });
+    }
+
+    function ensurePageFrames(parts) {
+      if (!parts || !parts.stack || !state.pageCount) return;
+      parts.stack.innerHTML = "";
+      const searchable = parts.shell.dataset.canSearch === "true";
+      for (let pageNumber = 1; pageNumber <= state.pageCount; pageNumber += 1) {
+        const frame = document.createElement("figure");
+        frame.className = "pdf-page";
+        frame.dataset.pageIndex = String(pageNumber - 1);
+        frame.dataset.pageNumber = String(pageNumber);
+        frame.dataset.searchable = searchable ? "true" : "false";
+        frame.innerHTML = `
+          <figcaption>Page ${pageNumber} of ${state.pageCount}</figcaption>
+          <div class="pdf-page-surface">
+            <canvas class="pdf-canvas"></canvas>
+            ${searchable ? '<div class="pdf-text-layer" aria-hidden="true"></div><div class="pdf-highlight-layer" aria-hidden="true"></div>' : ''}
+          </div>
+        `;
+        parts.stack.appendChild(frame);
+      }
+      parts.frames = Array.from(parts.shell.querySelectorAll(".pdf-page"));
+    }
+
+    async function applyViewerLayout(options = {}) {
       const parts = viewer();
       if (!parts || !parts.scroll || !parts.frames.length) return;
       const context = options.preserve === false ? { index: 0, ratio: 0 } : currentPageContext(parts);
 
-      if (state.mode === "width") state.scale = scaleForWidth(parts);
-      if (state.mode === "height") state.scale = scaleForHeight(parts);
+      if (state.mode === "width") state.scale = await scaleForWidth(parts);
+      if (state.mode === "height") state.scale = await scaleForHeight(parts);
       state.scale = clamp(state.scale);
 
-      parts.frames.forEach((frame, index) => {
-        const img = parts.images[index];
-        if (!img) return;
-        if (!img.naturalWidth || !img.naturalHeight) return;
-        const dims = dimensionsFor(img);
-        frame.style.width = `${Math.round(dims.layoutWidth)}px`;
-        frame.style.height = `${Math.round(dims.layoutHeight)}px`;
-        img.style.width = `${Math.round(dims.imageWidth)}px`;
-        img.style.height = `${Math.round(dims.imageHeight)}px`;
-        img.style.transform = `translate(-50%, -50%) rotate(${state.rotation}deg)`;
-      });
+      const token = ++state.renderToken;
+      state.renderedPages = new Set();
+      await preparePageFrames();
+      await renderVisiblePages(token);
 
       updateIndicators(parts);
       if (options.preserve !== false) restorePageContext(parts, context);
+      reapplyClientSearchHighlights();
+    }
+
+    async function renderVisiblePages(token = state.renderToken) {
+      const parts = viewer();
+      if (!parts || !parts.scroll || !parts.frames.length || !state.pdf) return;
+      const top = parts.scroll.scrollTop - parts.scroll.clientHeight;
+      const bottom = parts.scroll.scrollTop + (parts.scroll.clientHeight * 2.5);
+      const visible = parts.frames
+        .filter(frame => frame.offsetTop + frame.offsetHeight >= top && frame.offsetTop <= bottom)
+        .map(frame => Number(frame.dataset.pageNumber));
+      const pages = visible.length ? visible : [1];
+      await Promise.all(pages.map(pageNumber => renderPage(pageNumber, token)));
+      reapplyClientSearchHighlights();
     }
 
     function updateCurrentPage(parts = viewer()) {
@@ -298,36 +414,48 @@ function saveChecklistState() {
 
     function resetViewer() {
       state.rotation = 0;
-      state.mode = "width";
+      state.mode = "custom";
+      state.scale = 1;
       applyViewerLayout({ preserve: false });
     }
 
-    function bindPdfViewer() {
+    async function bindPdfViewer() {
       const parts = viewer();
       if (!parts || !parts.scroll) return;
+      if (!window.pdfjsLib) {
+        if (parts.stack) parts.stack.innerHTML = '<p class="page-copy">This PDF could not be loaded.</p>';
+        return;
+      }
       document.getElementById("pdf-zoom-in")?.addEventListener("click", zoomIn);
       document.getElementById("pdf-zoom-out")?.addEventListener("click", zoomOut);
       document.getElementById("pdf-fit-width")?.addEventListener("click", fitWidth);
       document.getElementById("pdf-fit-height")?.addEventListener("click", fitHeight);
       document.getElementById("pdf-rotate")?.addEventListener("click", rotate);
       document.getElementById("pdf-reset")?.addEventListener("click", resetViewer);
-      parts.scroll.addEventListener("scroll", () => updateCurrentPage(), { passive: true });
-      parts.images.forEach(img => {
-        if (img.complete && img.naturalWidth) {
-          applyViewerLayout({ preserve: false });
-        } else {
-          img.addEventListener("load", () => applyViewerLayout({ preserve: false }), { once: true });
-        }
-      });
+      let scrollRenderTimer = null;
+      parts.scroll.addEventListener("scroll", () => {
+        updateCurrentPage();
+        if (scrollRenderTimer) window.clearTimeout(scrollRenderTimer);
+        scrollRenderTimer = window.setTimeout(() => renderVisiblePages(), 80);
+      }, { passive: true });
       window.addEventListener("resize", () => {
         if (state.mode === "width" || state.mode === "height") applyViewerLayout();
       });
-      applyViewerLayout({ preserve: false });
+      try {
+        state.pdf = await pdfjsLib.getDocument(parts.shell.dataset.pdfUrl).promise;
+        state.pageCount = state.pdf.numPages || Number(parts.shell.dataset.pageCount) || 0;
+        ensurePageFrames(parts);
+        updateIndicators(viewer());
+        await applyViewerLayout({ preserve: false });
+      } catch (_) {
+        if (parts.stack) parts.stack.innerHTML = '<p class="page-copy">This PDF could not be loaded.</p>';
+      }
     }
 
     const searchState = {
       results: [],
-      currentIndex: -1
+      currentIndex: -1,
+      query: ""
     };
 
     function searchElements() {
@@ -351,11 +479,22 @@ function saveChecklistState() {
     }
 
     function clearSearchHighlights() {
-      document.querySelectorAll(".pdf-page-frame.search-hit, .pdf-page-frame.search-current").forEach(frame => {
+      document.querySelectorAll(".pdf-page.search-hit, .pdf-page.search-current").forEach(frame => {
         frame.classList.remove("search-hit", "search-current");
       });
       document.querySelectorAll(".pdf-search-result.active").forEach(result => {
         result.classList.remove("active");
+      });
+      document.querySelectorAll(".pdf-text-layer span.search-match").forEach(span => {
+        span.classList.remove("search-match");
+      });
+    }
+
+    function reapplyClientSearchHighlights() {
+      if (!searchState.query) return;
+      const pattern = new RegExp(escapeRegExp(searchState.query), "i");
+      document.querySelectorAll(".pdf-text-layer span").forEach(span => {
+        span.classList.toggle("search-match", pattern.test(span.dataset.text || span.textContent || ""));
       });
     }
 
@@ -380,7 +519,7 @@ function saveChecklistState() {
       }
       els.results.hidden = false;
       searchState.results.forEach((result, index) => {
-        const frame = document.querySelector(`.pdf-page-frame[data-page-number="${result.page}"]`);
+        const frame = document.querySelector(`.pdf-page[data-page-number="${result.page}"]`);
         if (frame) frame.classList.add("search-hit");
         const button = document.createElement("button");
         button.type = "button";
@@ -398,11 +537,11 @@ function saveChecklistState() {
       searchState.currentIndex = (index + searchState.results.length) % searchState.results.length;
       clearSearchHighlights();
       searchState.results.forEach(result => {
-        const hit = document.querySelector(`.pdf-page-frame[data-page-number="${result.page}"]`);
+        const hit = document.querySelector(`.pdf-page[data-page-number="${result.page}"]`);
         if (hit) hit.classList.add("search-hit");
       });
       const result = searchState.results[searchState.currentIndex];
-      const frame = document.querySelector(`.pdf-page-frame[data-page-number="${result.page}"]`);
+      const frame = document.querySelector(`.pdf-page[data-page-number="${result.page}"]`);
       if (frame) {
         frame.classList.add("search-current");
         frame.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -420,6 +559,7 @@ function saveChecklistState() {
       const query = els.input.value.trim();
       searchState.results = [];
       searchState.currentIndex = -1;
+      searchState.query = query;
       if (!query) {
         renderSearchResults();
         return;
@@ -440,10 +580,11 @@ function saveChecklistState() {
         searchState.results = Array.isArray(data.results) ? data.results : [];
         searchState.currentIndex = searchState.results.length ? 0 : -1;
         if (!searchState.results.length) {
-          renderSearchResults("No matches found.");
+          renderSearchResults("No searchable text found in this PDF.");
           return;
         }
         renderSearchResults();
+        reapplyClientSearchHighlights();
         goToSearchResult(0);
       } catch (_) {
         renderSearchResults("This PDF could not be text searched.");
@@ -459,6 +600,7 @@ function saveChecklistState() {
       els.clear?.addEventListener("click", () => {
         searchState.results = [];
         searchState.currentIndex = -1;
+        searchState.query = "";
         if (els.input) els.input.value = "";
         renderSearchResults();
       });

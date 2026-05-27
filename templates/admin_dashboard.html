@@ -100,7 +100,7 @@
           Replace existing file in selected category
         </label>
 
-        <button type="submit" class="btn success">Upload and convert</button>
+        <button type="submit" class="btn success">Upload PDF</button>
       </form>
     </details>
 
@@ -153,7 +153,7 @@
                       <form action="{{ url_for('regenerate_pdf') }}" method="post">
                         <input type="hidden" name="category" value="{{ category.path }}">
                         <input type="hidden" name="filename" value="{{ file.filename }}">
-                        <button class="btn" type="submit">Regenerate JPGs</button>
+                        <button class="btn" type="submit">Refresh metadata</button>
                       </form>
                       <form action="{{ url_for('delete_pdf') }}" method="post" onsubmit="return confirm('Delete {{ file.filename }} from {{ category.path }}?');">
                         <input type="hidden" name="category" value="{{ category.path }}">
@@ -268,7 +268,7 @@
           {% endif %}
         </div>
         <div>
-          <h4>Missing or zero JPGs</h4>
+          <h4>Legacy JPG checks</h4>
           {% if health.missing_jpgs %}
             <ul class="health-list">
               {% for item in health.missing_jpgs %}
@@ -280,7 +280,7 @@
           {% endif %}
         </div>
         <div>
-          <h4>Orphan JPGs</h4>
+          <h4>Legacy orphan JPGs</h4>
           {% if health.orphan_jpgs %}
             <ul class="health-list">
               {% for jpg in health.orphan_jpgs[:20] %}

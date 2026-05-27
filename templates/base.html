@@ -38,13 +38,13 @@
   </script>
 
   <!-- Your site JS -->
-  <script defer src="{{ url_for('static', filename='script.js', v='atc-ops') }}"></script>
+  <script defer src="{{ url_for('static', filename='script.js', v='pdfjs-direct') }}"></script>
 
   {% block head %}{% endblock %}
 </head>
 <body>
   {% set endpoint = request.endpoint or '' %}
-  {% set active_section = 'CHECKLISTS' if endpoint.startswith('checklist') else ('EXTRACTS' if endpoint.startswith('extracts') or endpoint.startswith('send_pdf') or endpoint.startswith('send_jpg') else ('ADMIN' if endpoint.startswith('admin') or endpoint in ['upload_pdf', 'delete_pdf', 'delete_category', 'regenerate_pdf'] else 'HOME')) %}
+  {% set active_section = 'CHECKLISTS' if endpoint.startswith('checklist') else ('EXTRACTS' if endpoint.startswith('extracts') or endpoint.startswith('send_pdf') else ('ADMIN' if endpoint.startswith('admin') or endpoint in ['upload_pdf', 'delete_pdf', 'delete_category', 'regenerate_pdf'] else 'HOME')) %}
   <header class="site-header">
     <div class="top-bar">
       <div class="brand-block">

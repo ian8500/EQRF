@@ -6,7 +6,6 @@ import pytest
 
 import app as app_module
 from app import (
-    JPG_DIR,
     AUDIT_LOG_JSON,
     append_audit_log,
     app,
@@ -204,16 +203,10 @@ def test_blank_category_upload_stores_as_general_reference(client, isolated_cont
     monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
     client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
 
-    def fake_render(pdf_path, output_dir, filename):
-        jpg = filename.replace('.pdf', '_page1.jpg')
-        (output_dir / jpg).write_bytes(b'jpg')
-        return [jpg], 'portrait'
-
     def fake_save(extracts):
         isolated_content.extracts.clear()
         isolated_content.extracts.update(extracts)
 
-    monkeypatch.setattr(app_module, '_render_pdf_to_jpg_dir', fake_render)
     monkeypatch.setattr(app_module, 'save_extracts', fake_save)
 
     response = client.post(
@@ -231,7 +224,17 @@ def test_blank_category_upload_stores_as_general_reference(client, isolated_cont
 
     assert response.status_code == 200
     assert '--' in isolated_content.extracts
-    assert file_entry_name(isolated_content.extracts['--']['__files__'][0]) == 'General.pdf'
+    entry = isolated_content.extracts['--']['__files__'][0]
+    assert file_entry_name(entry) == 'General.pdf'
+    assert normalise_file_entry(entry)['jpgs'] == []
+
+
+def test_requirements_no_longer_include_jpg_rendering_stack():
+    requirements = (app_module.BASE_DIR / 'requirements.txt').read_text(encoding='utf-8')
+
+    assert 'pdf2image' not in requirements
+    assert 'Pillow' not in requirements
+    assert 'pypdf' in requirements
 
 
 def test_admin_can_see_general_reference_pdf(client, isolated_content, monkeypatch):
@@ -275,16 +278,6 @@ def test_trigger_refresh_json_response_for_api_clients(client, monkeypatch):
 
     assert response.status_code == 200
     assert response.get_json() == {'ok': True}
-
-
-def test_known_static_jpg_route_works_if_available(client):
-    jpgs = sorted(JPG_DIR.glob('*.jpg'))
-    if not jpgs:
-        pytest.skip('No JPG assets available.')
-
-    response = client.get(f'/jpgs/{jpgs[0].name}')
-    assert response.status_code == 200
-    assert response.content_type.startswith('image/jpeg')
 
 
 def test_normalise_category_path_collapses_and_strips():
@@ -439,7 +432,7 @@ def test_extract_health_helpers_detect_missing_assets_and_orphans(tmp_path):
     }
 
     assert find_missing_pdfs(extracts, pdf_dir=tmp_path)[0]['filename'] == 'Missing.pdf'
-    assert find_missing_jpgs(extracts, jpg_dir=tmp_path)[0]['filename'] == 'Missing.pdf'
+    assert find_missing_jpgs(extracts, jpg_dir=tmp_path) == []
 
     (tmp_path / 'Missing_page1.jpg').write_bytes(b'referenced')
     (tmp_path / 'orphan.jpg').write_bytes(b'orphan')
@@ -514,11 +507,10 @@ def test_empty_extract_folders_and_missing_assets_are_hidden(client, isolated_co
     response = client.get('/extracts')
 
     assert response.status_code == 200
-    assert b'No published EQRF extracts available.' in response.data
+    assert b'GROUND' in response.data
     assert b'Empty' not in response.data
     assert b'Missing.pdf' not in response.data
-    assert b'NoJpg.pdf' not in response.data
-    assert filtered_extract_tree(isolated_content.extracts) == {}
+    assert filtered_extract_tree(isolated_content.extracts) == {'GROUND': {'__files__': [{'pdf': 'NoJpg.pdf', 'jpgs': ['NoJpg_page1.jpg']}]}}
 
 
 def test_extracts_index_hides_general_reference_sources(client, isolated_content):
@@ -764,11 +756,11 @@ def test_extract_viewer_renders_breadcrumb_for_nested_category(client, isolated_
 
 
 def test_extract_viewer_uses_professional_pdf_viewer_controls(client, isolated_content):
-    jpgs = isolated_content.publish_pdf('Viewer.pdf')
+    isolated_content.publish_pdf('Viewer.pdf')
     isolated_content.extracts.update({
         'Tower': {
             'GMC': {
-                '__files__': [{'pdf': 'Viewer.pdf', 'jpgs': jpgs, 'title': 'Viewer Extract'}],
+                '__files__': [{'pdf': 'Viewer.pdf', 'jpgs': ['Legacy_page1.jpg'], 'title': 'Viewer Extract'}],
             },
         },
     })
@@ -783,11 +775,12 @@ def test_extract_viewer_uses_professional_pdf_viewer_controls(client, isolated_c
     assert 'pdf-toolbar' in html
     assert 'pdf-scroll' in html
     assert 'pdf-page-stack' in html
-    assert 'pdf-page-frame' in html
-    assert 'pdf-page-image extract-image' in html
+    assert 'data-pdf-url="/pdfs/Viewer.pdf"' in html
+    assert 'pdfjs/pdf.js' in html
+    assert 'pdf-page-image extract-image' not in html
 
 
-def test_extract_viewer_renders_all_page_images(client, isolated_content):
+def test_extract_viewer_uses_pdfjs_stack_without_static_jpg_images(client, isolated_content):
     jpgs = isolated_content.publish_pdf('Multi.pdf', ['Multi_page1.jpg', 'Multi_page2.jpg'])
     isolated_content.extracts.update({'Tower': {'__files__': [{'pdf': 'Multi.pdf', 'jpgs': jpgs, 'title': 'Multi'}]}})
 
@@ -795,29 +788,31 @@ def test_extract_viewer_renders_all_page_images(client, isolated_content):
     html = response.get_data(as_text=True)
 
     assert response.status_code == 200
-    assert html.count('class="pdf-page-frame"') == 2
-    assert html.count('class="pdf-page-image extract-image"') == 2
+    assert 'id="pdf-page-stack"' in html
+    assert '/jpgs/' not in html
+    assert '<img' not in html
 
 
 def test_pdf_viewer_script_handles_fit_modes_rotation_and_layout():
     script = (app_module.BASE_DIR / 'static' / 'script.js').read_text(encoding='utf-8')
 
-    assert 'mode: "width"' in script
+    assert 'mode: "custom"' in script
+    assert 'state.scale = 1' in script
     assert 'state.mode = "height"' in script
     assert 'state.mode = "custom"' in script
     assert 'state.rotation = (state.rotation + 90) % 360' in script
-    assert 'frame.style.width' in script
-    assert 'frame.style.height' in script
-    assert 'naturalLayoutWidth' in script
-    assert 'naturalLayoutHeight' in script
+    assert 'pdfjsLib.getDocument' in script
+    assert 'page.render' in script
+    assert 'state.mode === "width"' in script
+    assert 'state.mode === "height"' in script
     assert 'scale(${viewerZoom})' not in script
 
 
-def test_extract_viewer_includes_pdf_search_controls_and_page_numbers(client, isolated_content):
-    jpgs = isolated_content.publish_pdf('Searchable.pdf')
-    isolated_content.extracts.update({'Tower': {'__files__': [{'pdf': 'Searchable.pdf', 'jpgs': jpgs, 'title': 'Searchable'}]}})
+def test_quick_reference_viewer_includes_pdf_search_controls(client, isolated_content):
+    isolated_content.publish_pdf('Searchable.pdf')
+    isolated_content.extracts.update({'--': {'__files__': [{'pdf': 'Searchable.pdf', 'title': 'Searchable'}]}})
 
-    response = client.get('/viewer/Tower/Searchable.pdf')
+    response = client.get('/viewer/--/Searchable.pdf')
     html = response.get_data(as_text=True)
 
     assert response.status_code == 200
@@ -825,15 +820,26 @@ def test_extract_viewer_includes_pdf_search_controls_and_page_numbers(client, is
     assert 'id="pdf-search-prev"' in html
     assert 'id="pdf-search-next"' in html
     assert 'id="pdf-search-clear"' in html
-    assert 'data-page-number="1"' in html
+
+
+def test_categorised_extract_viewer_hides_pdf_search_controls(client, isolated_content):
+    isolated_content.publish_pdf('Searchable.pdf')
+    isolated_content.extracts.update({'Tower': {'__files__': [{'pdf': 'Searchable.pdf', 'title': 'Searchable'}]}})
+
+    response = client.get('/viewer/Tower/Searchable.pdf')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'id="pdf-search-input"' not in html
+    assert 'id="pdf-search-prev"' not in html
 
 
 def test_viewer_search_validates_registered_pdf_and_returns_json(client, isolated_content, monkeypatch):
     isolated_content.publish_pdf('Searchable.pdf')
-    isolated_content.extracts.update({'Tower': {'__files__': [{'pdf': 'Searchable.pdf', 'jpgs': ['Searchable_page1.jpg'], 'title': 'Searchable'}]}})
+    isolated_content.extracts.update({'--': {'__files__': [{'pdf': 'Searchable.pdf', 'title': 'Searchable'}]}})
     monkeypatch.setattr(app_module, 'search_pdf_text', lambda filename, query: [{'page': 1, 'snippet': 'wake turbulence'}])
 
-    response = client.get('/viewer-search?category=Tower&filename=Searchable.pdf&q=wake')
+    response = client.get('/viewer-search?category=--&filename=Searchable.pdf&q=wake')
     payload = response.get_json()
 
     assert response.status_code == 200
@@ -845,22 +851,31 @@ def test_viewer_search_validates_registered_pdf_and_returns_json(client, isolate
 
 def test_viewer_search_returns_empty_results_for_no_match(client, isolated_content, monkeypatch):
     isolated_content.publish_pdf('Searchable.pdf')
-    isolated_content.extracts.update({'Tower': {'__files__': [{'pdf': 'Searchable.pdf', 'jpgs': ['Searchable_page1.jpg']}]}})
+    isolated_content.extracts.update({'--': {'__files__': [{'pdf': 'Searchable.pdf'}]}})
     monkeypatch.setattr(app_module, 'search_pdf_text', lambda filename, query: [])
 
-    response = client.get('/viewer-search?category=Tower&filename=Searchable.pdf&q=absent')
+    response = client.get('/viewer-search?category=--&filename=Searchable.pdf&q=absent')
 
     assert response.status_code == 200
     assert response.get_json()['result_count'] == 0
 
 
+def test_viewer_search_rejects_categorised_pdfs(client, isolated_content):
+    isolated_content.publish_pdf('Searchable.pdf')
+    isolated_content.extracts.update({'Tower': {'__files__': [{'pdf': 'Searchable.pdf'}]}})
+
+    response = client.get('/viewer-search?category=Tower&filename=Searchable.pdf&q=wake')
+
+    assert response.status_code == 403
+
+
 def test_viewer_search_rejects_unsafe_or_unregistered_files(client, isolated_content):
     isolated_content.publish_pdf('Registered.pdf')
-    isolated_content.extracts.update({'Tower': {'__files__': ['Registered.pdf']}})
+    isolated_content.extracts.update({'--': {'__files__': ['Registered.pdf']}})
 
-    unsafe_filename = client.get('/viewer-search?category=Tower&filename=../secret.pdf&q=x')
+    unsafe_filename = client.get('/viewer-search?category=--&filename=../secret.pdf&q=x')
     unsafe_category = client.get('/viewer-search?category=../admin&filename=Registered.pdf&q=x')
-    unregistered = client.get('/viewer-search?category=Tower&filename=Other.pdf&q=x')
+    unregistered = client.get('/viewer-search?category=--&filename=Other.pdf&q=x')
 
     assert unsafe_filename.status_code == 400
     assert unsafe_category.status_code == 400
@@ -1010,6 +1025,34 @@ def test_public_viewer_pages_render_single_breadcrumb(client, isolated_content):
     assert checklist_html.count('class="breadcrumb"') == 1
     assert 'Tower / GMC / Valid Extract' not in extract_html
     assert 'Tower / GMC / Runway Change' not in checklist_html
+
+
+def test_send_pdf_serves_registered_local_pdf(client, isolated_content):
+    isolated_content.publish_pdf('Served.pdf')
+    isolated_content.extracts.update({'AIR': {'__files__': ['Served.pdf']}})
+
+    response = client.get('/pdfs/Served.pdf')
+
+    assert response.status_code == 200
+    assert response.content_type.startswith('application/pdf')
+    assert response.headers.get('Accept-Ranges') == 'bytes'
+
+
+def test_send_pdf_rejects_unsafe_or_unregistered_files(client, isolated_content):
+    isolated_content.publish_pdf('Registered.pdf')
+    isolated_content.extracts.update({'AIR': {'__files__': ['Registered.pdf']}})
+
+    unsafe = client.get('/pdfs/../secret.pdf')
+    unregistered = client.get('/pdfs/Other.pdf')
+
+    assert unsafe.status_code == 404
+    assert unregistered.status_code == 404
+
+
+def test_legacy_jpg_route_is_not_public_viewer_surface(client):
+    response = client.get('/jpgs/anything.jpg')
+
+    assert response.status_code == 404
 
 
 def test_resolve_refresh_target_home_and_admin(client, monkeypatch):

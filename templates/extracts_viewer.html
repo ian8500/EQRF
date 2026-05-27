@@ -22,7 +22,13 @@
   </nav>
 {% endif %}
 
-<section class="pdf-viewer-shell" data-page-count="{{ item.page_count }}" data-category="{{ item.category }}" data-filename="{{ item.pdf }}">
+<section
+  class="pdf-viewer-shell"
+  data-page-count="{{ item.page_count }}"
+  data-category="{{ item.category }}"
+  data-filename="{{ item.pdf }}"
+  data-pdf-url="{{ item.pdf_url }}"
+  data-can-search="{{ 'true' if can_search_pdf else 'false' }}">
   <div id="pdf-toolbar" class="pdf-toolbar">
     {% if parent_path == '--' %}
       <a class="btn" href="{{ url_for('home') }}">Back</a>
@@ -30,7 +36,7 @@
       <a class="btn" href="{{ url_for('extracts_category', subpath=parent_path) }}">Back to Category</a>
     {% endif %}
     <span class="page-indicator" id="pdf-page-indicator">Page 1 / {{ item.page_count }}</span>
-    <span class="zoom-indicator" id="pdf-zoom-indicator">Fit Width</span>
+    <span class="zoom-indicator" id="pdf-zoom-indicator">100%</span>
     <span class="zoom-indicator" id="pdf-rotation-indicator">0°</span>
     <button type="button" id="pdf-zoom-out" title="Zoom out">Zoom -</button>
     <button type="button" id="pdf-zoom-in" title="Zoom in">Zoom +</button>
@@ -38,33 +44,33 @@
     <button type="button" id="pdf-fit-height" title="Fit document height">Fit Height</button>
     <button type="button" id="pdf-rotate" title="Rotate document">Rotate</button>
     <button type="button" id="pdf-reset" title="Reset view">Reset</button>
-    <form class="pdf-search-form" id="pdf-search-form">
-      <input class="pdf-search-input" id="pdf-search-input" type="search" placeholder="Search this PDF" aria-label="Search this PDF">
-      <button type="submit">Search</button>
-      <button type="button" id="pdf-search-prev">Previous</button>
-      <button type="button" id="pdf-search-next">Next</button>
-      <span class="page-indicator" id="pdf-search-count">0 / 0</span>
-      <button type="button" id="pdf-search-clear">Clear</button>
-    </form>
+    {% if can_search_pdf %}
+      <form class="pdf-search-form" id="pdf-search-form">
+        <input class="pdf-search-input" id="pdf-search-input" type="search" placeholder="Search this PDF" aria-label="Search this PDF">
+        <button type="submit">Search</button>
+        <button type="button" id="pdf-search-prev">Previous</button>
+        <button type="button" id="pdf-search-next">Next</button>
+        <span class="page-indicator" id="pdf-search-count">0 / 0</span>
+        <button type="button" id="pdf-search-clear">Clear</button>
+      </form>
+    {% endif %}
   </div>
 
-  <div class="pdf-search-results" id="pdf-search-results" hidden></div>
+  {% if can_search_pdf %}
+    <div class="pdf-search-results" id="pdf-search-results" hidden></div>
+  {% endif %}
 
   <div class="pdf-scroll" id="pdf-scroll">
-    <div class="pdf-page-stack" id="pdf-page-stack">
-      {% for jpg in item.jpgs %}
-        <figure class="pdf-page-frame" data-page-index="{{ loop.index0 }}" data-page-number="{{ loop.index }}">
-          <figcaption>Page {{ loop.index }} of {{ item.page_count }}</figcaption>
-          <img
-            src="{{ url_for('send_jpg', filename=jpg) }}"
-            alt="{{ page_title }} page {{ loop.index }}"
-            class="pdf-page-image extract-image"
-            loading="{{ 'eager' if loop.first else 'lazy' }}"
-            decoding="async">
-        </figure>
-      {% endfor %}
+    <div class="pdf-page-stack" id="pdf-page-stack" aria-live="polite">
+      <p class="page-copy">Loading PDF...</p>
     </div>
   </div>
 </section>
 </section>
+<script src="{{ url_for('static', filename='pdfjs/pdf.js') }}"></script>
+<script>
+  if (window.pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "{{ url_for('static', filename='pdfjs/pdf.worker.js') }}";
+  }
+</script>
 {% endblock %}

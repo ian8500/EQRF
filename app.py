@@ -25,22 +25,15 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 
-# Optional: used only for admin-time PDF→JPG conversion
-from pdf2image import convert_from_path
-from PIL import Image
-
 # ---------------------- Paths & Env ---------------------- #
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / 'data'
 PDF_DIR = BASE_DIR / 'pdfs'              # keep PDFs here (matches your zip)
-JPG_DIR = BASE_DIR / 'static' / 'jpgs'   # pre-rendered pages
+JPG_DIR = BASE_DIR / 'static' / 'jpgs'   # legacy pre-rendered pages, no longer used by the public viewer
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 PDF_DIR.mkdir(parents=True, exist_ok=True)
 JPG_DIR.mkdir(parents=True, exist_ok=True)
-
-# Ensure poppler tools are in PATH (for pdf2image under systemd/gunicorn on Pi)
-os.environ['PATH'] += os.pathsep + '/usr/bin'
 
 # ---------------------- App Configuration ---------------------- #
 
@@ -51,9 +44,6 @@ class Settings:
 
     secret_key: str = os.environ.get('EQRF_SECRET_KEY') or os.environ.get('SECRET_KEY', 'change-me')
     admin_password: str = os.environ.get('EQRF_PASSWORD', 'admin')
-    pdf_dpi: int = int(os.environ.get('PDF_DPI', '100'))
-    max_width: int = int(os.environ.get('MAX_WIDTH', '1600'))
-    jpeg_quality: int = int(os.environ.get('JPEG_QUALITY', '68'))
     debug: bool = os.environ.get('FLASK_DEBUG', '0') in {'1', 'true', 'True'}
     host: str = os.environ.get('FLASK_RUN_HOST', '0.0.0.0')
     port: int = int(os.environ.get('FLASK_RUN_PORT', os.environ.get('PORT', '8000')))
@@ -64,20 +54,17 @@ SETTINGS = Settings()
 app = Flask(__name__)
 app.secret_key = SETTINGS.secret_key
 
-# Strong client caching for static assets & JPG images
+# Strong client caching for static assets and locally served PDFs.
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = timedelta(days=365)
-app.config.update(
-    PDF_DPI=SETTINGS.pdf_dpi,
-    MAX_WIDTH=SETTINGS.max_width,
-    JPEG_QUALITY=SETTINGS.jpeg_quality,
-)
-
 @app.after_request
 def add_caching_headers(resp):
     p = request.path or ''
     if p in {'/static/style.css', '/static/script.js'}:
         resp.headers['Cache-Control'] = 'no-cache'
-    elif p.startswith('/static/') or p.startswith('/jpgs/'):
+    elif p.startswith('/pdfs/'):
+        resp.headers.setdefault('Cache-Control', 'public, max-age=86400')
+        resp.headers.setdefault('Accept-Ranges', 'bytes')
+    elif p.startswith('/static/'):
         resp.headers.setdefault('Cache-Control', 'public, max-age=31536000, immutable')
     return resp
 
@@ -553,6 +540,25 @@ def flatten_extract_files(extracts: Any) -> List[Dict[str, Any]]:
     return files
 
 
+def pdf_is_registered(filename: str, extracts: Optional[Any] = None) -> bool:
+    try:
+        filename = _safe_pdf_filename(filename)
+    except ValueError:
+        return False
+    data = get_extracts() if extracts is None else extracts
+
+    def visit(node: Any) -> bool:
+        if any(file_entry_name(entry) == filename for entry in _list_file_entries_in_node(node)):
+            return True
+        if isinstance(node, dict):
+            return any(visit(value) for key, value in node.items() if key != '__files__')
+        if isinstance(node, list):
+            return any(file_entry_name(entry) == filename for entry in node)
+        return False
+
+    return visit(data)
+
+
 def extract_entry_is_valid(entry: Any) -> bool:
     filename = file_entry_name(entry)
     metadata = normalise_file_entry(entry)
@@ -560,7 +566,6 @@ def extract_entry_is_valid(entry: Any) -> bool:
         filename
         and metadata_is_public(metadata)
         and local_pdf_exists(filename)
-        and get_valid_jpgs_for_pdf(filename, file_entry_jpgs(entry))
     )
 
 
@@ -623,7 +628,7 @@ def flatten_valid_extract_files(node: Any) -> List[Dict[str, Any]]:
                         'entry': entry,
                         'filename': filename,
                         'title': get_display_title_for_pdf(entry),
-                        'jpgs': get_valid_jpgs_for_pdf(filename, file_entry_jpgs(entry)),
+                        'jpgs': file_entry_jpgs(entry),
                         'metadata': normalise_file_entry(entry),
                     })
             return
@@ -637,7 +642,7 @@ def flatten_valid_extract_files(node: Any) -> List[Dict[str, Any]]:
                     'entry': entry,
                     'filename': filename,
                     'title': get_display_title_for_pdf(entry),
-                    'jpgs': get_valid_jpgs_for_pdf(filename, file_entry_jpgs(entry)),
+                    'jpgs': file_entry_jpgs(entry),
                     'metadata': normalise_file_entry(entry),
                 })
         for key, value in current.items():
@@ -760,15 +765,7 @@ def find_missing_pdfs(extracts: Any, pdf_dir: Path = PDF_DIR) -> List[Dict[str, 
 
 
 def find_missing_jpgs(extracts: Any, jpg_dir: Path = JPG_DIR) -> List[Dict[str, Any]]:
-    missing: List[Dict[str, Any]] = []
-    for item in flatten_extract_files(extracts):
-        jpgs = item['jpgs']
-        missing_names = [jpg for jpg in jpgs if not (jpg_dir / jpg).exists()]
-        if not jpgs or missing_names:
-            issue = dict(item)
-            issue['missing_jpgs'] = missing_names
-            missing.append(issue)
-    return missing
+    return []
 
 
 def find_orphan_jpgs(extracts: Any, jpg_dir: Path = JPG_DIR) -> List[str]:
@@ -802,19 +799,6 @@ def find_extract_health_issues(extracts: Any) -> List[Dict[str, Any]]:
             'category': item['category'],
             'filename': item['filename'],
             'message': f"Source PDF missing: {item['filename']}",
-        })
-    for item in find_missing_jpgs(extracts):
-        if item['jpgs']:
-            detail = ', '.join(item.get('missing_jpgs') or [])
-            message = f"Missing rendered JPGs for {item['filename']}: {detail}"
-        else:
-            message = f"No rendered JPGs registered for {item['filename']}"
-        issues.append({
-            'type': 'missing_jpg',
-            'severity': 'warning',
-            'category': item['category'],
-            'filename': item['filename'],
-            'message': message,
         })
     for duplicate in find_duplicate_pdf_entries(extracts):
         issues.append({
@@ -1052,6 +1036,18 @@ def local_pdf_exists(filename: str) -> bool:
     return bool(filename and (PDF_DIR / filename).is_file())
 
 
+def get_pdf_page_count(filename: str) -> int:
+    try:
+        filename = _safe_pdf_filename(filename)
+        pdf_path = PDF_DIR / filename
+        if not pdf_path.is_file():
+            return 0
+        from pypdf import PdfReader
+        return len(PdfReader(str(pdf_path)).pages)
+    except Exception:
+        return 0
+
+
 def get_valid_jpgs_for_pdf(filename: str, metadata_jpgs: Optional[Iterable[str]] = None) -> List[str]:
     valid: List[str] = []
     seen = set()
@@ -1180,16 +1176,16 @@ def public_extract_item(entry: Any, category: str) -> Optional[Dict[str, Any]]:
         return None
     filename = file_entry_name(entry)
     metadata = normalise_file_entry(entry)
-    jpgs = get_valid_jpgs_for_pdf(filename, metadata.get('jpgs', []))
-    orientation = metadata.get('orientation') or _detect_orientation_from_first_jpg(jpgs)
+    page_count = int(metadata.get('page_count') or 0) or get_pdf_page_count(filename) or 1
+    orientation = metadata.get('orientation') or 'portrait'
     return {
         'category': category,
         'entry': entry,
         'filename': filename,
         'label': get_display_title_for_pdf(entry),
         'title': get_display_title_for_pdf(entry),
-        'jpgs': jpgs,
-        'page_count': int(metadata.get('page_count') or len(jpgs)),
+        'jpgs': file_entry_jpgs(entry),
+        'page_count': page_count,
         'orientation': orientation,
         'metadata': metadata,
         'status_label': metadata_status_label(metadata),
@@ -1220,6 +1216,18 @@ def _misc_is_general_reference_only(node: Any) -> bool:
     if not isinstance(node, dict):
         return False
     return all(key == '__files__' for key in node.keys())
+
+
+def is_general_reference_category(category: Any) -> bool:
+    try:
+        normalised = normalise_category_path(category)
+    except ValueError:
+        return False
+    if normalised == '--':
+        return True
+    if normalised == 'MISC':
+        return _misc_is_general_reference_only(get_extracts().get('MISC'))
+    return False
 
 
 def entry_source_category(entry: Any) -> str:
@@ -1256,87 +1264,6 @@ def get_general_reference_entries() -> List[Dict[str, Any]]:
             add_entries(misc_node, 'MISC')
 
     return sorted(entries, key=lambda item: item['title'].lower())
-
-
-def _ensure_jpgs_for_pdf(
-    pdf_path: Path,
-    filename: str,
-    *,
-    dpi: int,
-    quality: int,
-    max_width: int,
-) -> List[str]:
-    """Render JPGs if missing. Admin normally does this at upload time, but this is a safety net."""
-    jpgs = _jpg_glob_for_pdf(filename)
-    if jpgs:
-        return [path.name for path in jpgs]
-
-    pages = convert_from_path(str(pdf_path), dpi=dpi)
-    out: List[str] = []
-    for i, page in enumerate(pages, start=1):
-        if page.width > max_width:
-            scale = max_width / float(page.width)
-            new_size = (max_width, int(page.height * scale))
-            page = page.resize(new_size, Image.LANCZOS)
-        img = page.convert('RGB')
-        out_name = f"{_pdf_base(filename)}_page{i}.jpg"
-        out_path = JPG_DIR / out_name
-        img.save(str(out_path), 'JPEG', quality=quality, optimize=True, progressive=True, subsampling=2)
-        out.append(out_name)
-    return out
-
-
-def _detect_orientation_from_first_jpg(jpg_names: List[str]) -> str:
-    if not jpg_names:
-        return 'portrait'
-    first = JPG_DIR / jpg_names[0]
-    try:
-        with Image.open(first) as im:
-            return 'landscape' if im.width >= im.height else 'portrait'
-    except Exception:
-        return 'portrait'
-
-
-def _detect_orientation_from_jpg_path(path: Path) -> str:
-    try:
-        with Image.open(path) as im:
-            return 'landscape' if im.width >= im.height else 'portrait'
-    except Exception:
-        return 'portrait'
-
-
-def _render_pdf_to_jpg_dir(pdf_path: Path, output_dir: Path, filename: str) -> Tuple[List[str], str]:
-    pages = convert_from_path(str(pdf_path), dpi=SETTINGS.pdf_dpi)
-    jpgs: List[str] = []
-    base = _pdf_base(filename)
-    for i, page in enumerate(pages, start=1):
-        if page.width > SETTINGS.max_width:
-            scale = SETTINGS.max_width / float(page.width)
-            page = page.resize((SETTINGS.max_width, int(page.height * scale)), Image.LANCZOS)
-        img = page.convert('RGB')
-        out_name = f'{base}_page{i}.jpg'
-        img.save(
-            str(output_dir / out_name),
-            'JPEG',
-            quality=SETTINGS.jpeg_quality,
-            optimize=True,
-            progressive=True,
-            subsampling=2,
-        )
-        jpgs.append(out_name)
-
-    orientation = 'portrait'
-    if jpgs:
-        orientation = _detect_orientation_from_jpg_path(output_dir / jpgs[0])
-    return jpgs, orientation
-
-
-def _remove_jpg_files(names: Iterable[str]) -> None:
-    for name in names:
-        try:
-            (JPG_DIR / name).unlink()
-        except FileNotFoundError:
-            pass
 
 
 def _issue_lookup(issues: List[Dict[str, Any]]) -> Dict[Tuple[str, str], List[Dict[str, Any]]]:
@@ -1454,7 +1381,6 @@ def _admin_context() -> Dict[str, Any]:
             filename = item.get('pdf', '')
             if not filename:
                 continue
-            valid_jpgs = get_valid_jpgs_for_pdf(filename, item.get('jpgs', []))
             public_visible = extract_entry_is_valid(entry)
             if public_visible:
                 visibility_label = metadata_status_label(item)
@@ -1465,9 +1391,6 @@ def _admin_context() -> Dict[str, Any]:
             elif not local_pdf_exists(filename):
                 visibility_label = 'Hidden: missing PDF'
                 visibility_state = 'missing-pdf'
-            elif not valid_jpgs:
-                visibility_label = 'Hidden: missing JPG'
-                visibility_state = 'missing-jpg'
             else:
                 visibility_label = 'Hidden: invalid metadata'
                 visibility_state = 'hidden'
@@ -1479,7 +1402,7 @@ def _admin_context() -> Dict[str, Any]:
                 'status_label': metadata_status_label(item),
                 'status_state': metadata_status_state(item),
                 'jpgs': file_entry_jpgs(entry),
-                'valid_jpgs': valid_jpgs,
+                'valid_jpgs': get_valid_jpgs_for_pdf(filename, item.get('jpgs', [])),
                 'issue_count': len(file_issues),
                 'issues': file_issues,
                 'pdf_exists': (PDF_DIR / filename).exists(),
@@ -1922,6 +1845,8 @@ def viewer_search():
     try:
         filename = _safe_pdf_filename(filename)
         normalised_category = normalise_category_path(category)
+        if not is_general_reference_category(normalised_category):
+            return jsonify({'error': 'PDF search is only available for General Reference documents.', 'results': [], 'result_count': 0}), 403
         entry = _registered_extract_entry(normalised_category, filename)
         if entry is None or not extract_entry_is_valid(entry):
             return jsonify({'error': 'PDF not found.', 'results': [], 'result_count': 0}), 404
@@ -2018,32 +1943,17 @@ def extracts_viewer(category, filename):
     if not pdf_path.exists():
         return _unavailable('Extract unavailable', 'The local source PDF is missing and must be repaired in Admin.', 'Back to Extracts', 'extracts_index')
 
-    jpgs = get_valid_jpgs_for_pdf(filename, file_entry_jpgs(entry))
-    if not jpgs:
-        # Safety net: render if missing (normally done at upload time)
-        try:
-            jpgs = _ensure_jpgs_for_pdf(
-                pdf_path,
-                filename,
-                dpi=SETTINGS.pdf_dpi,
-                quality=SETTINGS.jpeg_quality,
-                max_width=SETTINGS.max_width,
-            )
-        except Exception:
-            return _unavailable('Extract unavailable', 'The rendered JPG pages are missing and could not be generated locally.', 'Back to Extracts', 'extracts_index')
-    jpgs = get_valid_jpgs_for_pdf(filename, jpgs)
-    if not jpgs:
-        return _unavailable('Extract unavailable', 'The rendered JPG pages are missing and must be regenerated in Admin.', 'Back to Extracts', 'extracts_index')
-
-    orientation = item.get('orientation') or _detect_orientation_from_first_jpg(jpgs)
+    page_count = int(item.get('page_count') or 0) or get_pdf_page_count(filename) or 1
+    orientation = item.get('orientation') or 'portrait'
 
     item = {
         'pdf': filename,
         'title': get_display_title_for_pdf(entry),
-        'jpgs': jpgs,
+        'jpgs': file_entry_jpgs(entry),
         'orientation': orientation,
-        'page_count': int(item.get('page_count') or len(jpgs)),
+        'page_count': page_count,
         'category': normalised_category,
+        'pdf_url': url_for('send_pdf', filename=filename),
         'metadata': item,
         'status_label': metadata_status_label(item),
         'status_state': metadata_status_state(item),
@@ -2064,6 +1974,7 @@ def extracts_viewer(category, filename):
         item=item,
         breadcrumbs=breadcrumbs,
         parent_path=parent_path,
+        can_search_pdf=is_general_reference_category(normalised_category),
         sibling_items=_extract_sibling_items(filtered_extract_tree(extracts) or {}, normalised_category),
     )
 
@@ -2082,16 +1993,16 @@ def extracts_viewer_by_index(category, index):
         return _unavailable('Extract unavailable', 'This document index is not available in the published EQRF set.', 'Back to Extracts', 'extracts_index')
     return redirect(url_for('extracts_viewer', category=normalised, filename=items[index - 1]['filename']))
 
-# ---------------------- Static file senders ---------------------- #
-
-@app.route('/jpgs/<path:filename>')
-def send_jpg(filename):
-    return send_from_directory(JPG_DIR, filename)
-
-
 @app.route('/pdfs/<path:filename>')
 def send_pdf(filename):
-    return send_from_directory(PDF_DIR, filename)
+    try:
+        filename = _safe_pdf_filename(filename)
+    except ValueError:
+        return _unavailable('PDF unavailable', 'This PDF path is not valid.', 'Back to Extracts', 'extracts_index')
+
+    if not pdf_is_registered(filename) or not local_pdf_exists(filename):
+        return _unavailable('PDF unavailable', 'This PDF is not registered in local EQRF data.', 'Back to Extracts', 'extracts_index')
+    return send_from_directory(PDF_DIR, filename, conditional=True, mimetype='application/pdf')
 
 # ---------------------- Admin: register & manage extracts ---------------------- #
 
@@ -2144,7 +2055,7 @@ def admin_audit():
 @app.route('/admin/upload_pdf', methods=['POST'])
 @login_required
 def upload_pdf():
-    """Register a PDF only after the source and generated pages are complete."""
+    """Register a PDF only after the source file has been validated."""
 
     upload = request.files.get('file')
     replace = request.form.get('replace') == 'true'
@@ -2189,32 +2100,26 @@ def upload_pdf():
                 if f.read(4) != b'%PDF':
                     raise ValueError('Not a PDF.')
 
-            tmp_jpg_dir = tmp_dir / 'jpgs'
-            tmp_jpg_dir.mkdir()
-            try:
-                jpgs, detected_orientation = _render_pdf_to_jpg_dir(tmp_pdf, tmp_jpg_dir, safe_name)
-            except Exception as exc:
-                raise ValueError(f'Conversion failed: {exc}') from exc
-            if not jpgs:
-                raise ValueError('Conversion failed: no JPG pages were generated.')
-
-            orientation = detected_orientation if orientation_mode == 'auto' else orientation_mode
+            orientation = 'portrait' if orientation_mode == 'auto' else orientation_mode
             existing_entry = _find_file_entry(node, safe_name) if node is not None else None
-            old_jpgs = file_entry_jpgs(existing_entry) if existing_entry else _jpg_names_for_pdf(safe_name)
+            existing_metadata = normalise_file_entry(existing_entry) if existing_entry else {}
+            page_count = 0
+            try:
+                from pypdf import PdfReader
+                page_count = len(PdfReader(str(tmp_pdf)).pages)
+            except Exception:
+                page_count = int(existing_metadata.get('page_count') or 0)
             metadata = {
                 'pdf': safe_name,
-                'jpgs': jpgs,
+                'jpgs': file_entry_jpgs(existing_entry) if existing_entry else [],
                 'orientation': orientation,
-                'page_count': len(jpgs),
+                'page_count': page_count,
                 'uploaded_at': _utc_timestamp(),
                 'source': 'admin',
                 **governance_metadata,
             }
 
             tmp_pdf.replace(PDF_DIR / safe_name)
-            _remove_jpg_files(old_jpgs)
-            for jpg in jpgs:
-                (tmp_jpg_dir / jpg).replace(JPG_DIR / jpg)
 
         upsert_pdf_entry(extracts, category, metadata, replace=replace)
         save_extracts(extracts)
@@ -2232,7 +2137,7 @@ def upload_pdf():
                 'status': metadata.get('status'),
             },
         )
-        flash(f'Uploaded {safe_name} to {category}. {len(jpgs)} pages converted.', 'success')
+        flash(f'Uploaded {safe_name} to {category}.', 'success')
     except ValueError as exc:
         flash(str(exc), 'error')
     return redirect(url_for('admin_panel'))
@@ -2316,13 +2221,7 @@ def delete_pdf():
     try:
         category = normalise_category_path(category)
         extracts = _json_clone(get_extracts())
-        node = _get_node_for_path(extracts, safe_path_parts(category))
-        entry = _find_file_entry(node, filename) if node is not None else None
         if remove_pdf_entry(extracts, category, filename):
-            if entry:
-                _remove_jpg_files(file_entry_jpgs(entry))
-            else:
-                _remove_jpg_files(_jpg_names_for_pdf(filename))
             save_extracts(extracts)
             trigger_client_refresh()
             append_audit_log('delete_extract', 'extract', f'{category}/{filename}', f'Deleted extract {filename} from {category}')
@@ -2354,35 +2253,22 @@ def regenerate_pdf():
         if not pdf_path.exists():
             raise ValueError('Missing file.')
 
-        with tempfile.TemporaryDirectory(prefix='eqrf-regen-', dir=BASE_DIR) as tmp:
-            tmp_jpg_dir = Path(tmp)
-            try:
-                jpgs, detected_orientation = _render_pdf_to_jpg_dir(pdf_path, tmp_jpg_dir, filename)
-            except Exception as exc:
-                raise ValueError(f'Conversion failed: {exc}') from exc
-            if not jpgs:
-                raise ValueError('Conversion failed: no JPG pages were generated.')
-
-            item = normalise_file_entry(entry)
-            _remove_jpg_files(file_entry_jpgs(entry) or _jpg_names_for_pdf(filename))
-            for jpg in jpgs:
-                (tmp_jpg_dir / jpg).replace(JPG_DIR / jpg)
+        item = normalise_file_entry(entry)
+        page_count = get_pdf_page_count(filename) or int(item.get('page_count') or 0)
 
         item.update({
             'pdf': filename,
             'title': item.get('title') or _pdf_base(filename),
-            'jpgs': jpgs,
-            'orientation': item.get('orientation') or detected_orientation,
-            'page_count': len(jpgs),
-            'regenerated_at': _utc_timestamp(),
+            'page_count': page_count,
+            'refreshed_at': _utc_timestamp(),
             'last_updated': _utc_timestamp(),
             'source': item.get('source') or 'admin',
         })
         upsert_pdf_entry(extracts, category, item, replace=True)
         save_extracts(extracts)
         trigger_client_refresh()
-        append_audit_log('regenerate_extract_jpgs', 'extract', f'{category}/{filename}', f'Regenerated JPG pages for {filename}')
-        flash(f'Regenerated {len(jpgs)} JPG pages for {filename}.', 'success')
+        append_audit_log('refresh_extract_metadata', 'extract', f'{category}/{filename}', f'Refreshed PDF metadata for {filename}')
+        flash(f'Refreshed metadata for {filename}.', 'success')
     except ValueError as exc:
         flash(str(exc), 'error')
     return redirect(url_for('admin_panel'))
@@ -2417,17 +2303,7 @@ def delete_category():
         flash('Category not found.', 'error')
         return redirect(url_for('admin_panel'))
 
-    all_files = []
-    _collect_files(node, all_files)
-
     if _delete_category_path(extracts, parts):
-        # Remove JPGs (keep original PDFs)
-        for fn in all_files:
-            for jpg in _jpg_names_for_pdf(fn):
-                try:
-                    (JPG_DIR / jpg).unlink()
-                except FileNotFoundError:
-                    pass
         save_extracts(extracts)
         trigger_client_refresh()
         append_audit_log('delete_extract_category', 'extract_category', category, f'Deleted extract category {category}')
