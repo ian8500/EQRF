@@ -10,7 +10,7 @@
       "Activate East and West RHLs before issuing Stand 30 clearance",
       "Broadcast on UHF1: 'A380 Road Holding Lights Activated'",
       "--- Departure ---",
-      "Pilot requests push/start \u2013 respond 'Standby'",
+      "Pilot requests push/start – respond 'Standby'",
       "Contact AOU and request West RHLs",
       "Broadcast on UHF1: 'A380 Road Holding Lights Activated'",
       "Confirm road system safeguarded (via AOU)",
@@ -35,7 +35,7 @@
       "Activate East and West RHLs before issuing Stand 30 clearance",
       "Broadcast on UHF1: 'A380 Road Holding Lights Activated'",
       "--- Departure ---",
-      "Pilot requests push/start \u2013 respond 'Standby'",
+      "Pilot requests push/start – respond 'Standby'",
       "Contact AOU and request West RHLs",
       "Broadcast on UHF1: 'A380 Road Holding Lights Activated'",
       "Confirm road system safeguarded (via AOU)",
@@ -91,7 +91,7 @@
         "Activate East and West RHLs before issuing Stand 30 clearance",
         "Broadcast on UHF1: 'A380 Road Holding Lights Activated'",
         "--- Departure ---",
-        "Pilot requests push/start \u2013 respond 'Standby'",
+        "Pilot requests push/start – respond 'Standby'",
         "Contact AOU and request West RHLs",
         "Broadcast on UHF1: 'A380 Road Holding Lights Activated'",
         "Confirm road system safeguarded (via AOU)",
@@ -108,10 +108,23 @@
       ]
     },
     "GMC": {
-      "Apron Lights": [
-        "Turn on apron lighting",
-        "Check standby"
-      ],
+      "Apron Lights": {
+        "__type__": "checklist",
+        "metadata": {
+          "title": "Apron Lights",
+          "version": "1",
+          "effective_date": "N/A",
+          "expiry_date": "N/A",
+          "review_date": "N/A",
+          "owner": "N/A",
+          "status": "published",
+          "last_updated": "2026-05-27T21:43:52Z"
+        },
+        "items": [
+          "Turn on apron lighting",
+          "Check standby"
+        ]
+      },
       "Vehicle Checks": [
         "Inspect vehicle access points"
       ],

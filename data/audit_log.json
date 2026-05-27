@@ -1,1 +1,47 @@
-[]
+[
+  {
+    "timestamp": "2026-05-27T21:40:17Z",
+    "user": "admin",
+    "action": "admin_login_success",
+    "target_type": "auth",
+    "target_path": "admin",
+    "summary": "Admin login successful",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-05-27T21:43:52Z",
+    "user": "admin",
+    "action": "edit_checklist",
+    "target_type": "checklist",
+    "target_path": "Tower/GMC/Apron Lights",
+    "summary": "Updated checklist Tower/GMC/Apron Lights",
+    "details": {
+      "title": "Apron Lights",
+      "version": "1",
+      "effective_date": "N/A",
+      "expiry_date": "N/A",
+      "review_date": "N/A",
+      "owner": "N/A",
+      "status": "published",
+      "last_updated": "2026-05-27T21:43:52Z"
+    }
+  },
+  {
+    "timestamp": "2026-05-27T21:43:52Z",
+    "user": "admin",
+    "action": "update_checklist_metadata",
+    "target_type": "checklist",
+    "target_path": "Tower/GMC/Apron Lights",
+    "summary": "Updated checklist metadata for Tower/GMC/Apron Lights",
+    "details": {
+      "title": "Apron Lights",
+      "version": "1",
+      "effective_date": "N/A",
+      "expiry_date": "N/A",
+      "review_date": "N/A",
+      "owner": "N/A",
+      "status": "published",
+      "last_updated": "2026-05-27T21:43:52Z"
+    }
+  }
+]
