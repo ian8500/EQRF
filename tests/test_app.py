@@ -1,6 +1,8 @@
 import io
 import importlib
 import re
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -108,6 +110,15 @@ def test_health_page_returns_ok_json(client):
     assert response.get_json() == {'status': 'ok', 'app': 'EQRF', 'mode': 'production'}
 
 
+def test_health_page_returns_development_when_debug_enabled(client, monkeypatch):
+    monkeypatch.setenv('FLASK_DEBUG', '1')
+
+    response = client.get('/health')
+
+    assert response.status_code == 200
+    assert response.get_json() == {'status': 'ok', 'app': 'EQRF', 'mode': 'development'}
+
+
 def test_admin_redirects_to_login_when_logged_out(client):
     response = client.get('/admin')
     assert response.status_code == 302
@@ -190,6 +201,23 @@ def test_production_safety_warnings_for_default_secrets():
     assert any('EQRF_PASSWORD' in warning for warning in warnings)
 
 
+def test_secret_key_safety_detects_unsafe_and_accepts_generated_like_value():
+    unsafe_values = ['change-me', 'change-this', 'your-strong-secret-key', 'secret', 'admin', 'password', 'dev-secret-key', 'short']
+    for value in unsafe_values:
+        warnings = production_safety_warnings(Settings(secret_key=value, admin_password='safe-admin-password'))
+        assert any('EQRF_SECRET_KEY' in warning for warning in warnings)
+
+    warnings = production_safety_warnings(Settings(secret_key='a' * 64, admin_password='safe-admin-password'))
+    assert not any('EQRF_SECRET_KEY' in warning for warning in warnings)
+
+
+def test_admin_password_safety_detects_unsafe_values():
+    unsafe_values = ['admin', 'password', 'change-me', 'change-this', 'short']
+    for value in unsafe_values:
+        warnings = production_safety_warnings(Settings(secret_key='a' * 64, admin_password=value))
+        assert any('EQRF_PASSWORD' in warning for warning in warnings)
+
+
 def test_admin_health_shows_production_safety_warnings(client, monkeypatch):
     monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
     client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
@@ -201,6 +229,42 @@ def test_admin_health_shows_production_safety_warnings(client, monkeypatch):
     assert 'Production safety' in html
     assert 'EQRF_SECRET_KEY' in html
     assert 'EQRF_PASSWORD' in html
+
+
+def test_environment_secret_documentation_and_helpers_exist():
+    base = app_module.BASE_DIR
+
+    assert (base / '.env.example').exists()
+    assert (base / 'scripts' / 'generate_secret_key.py').exists()
+    assert (base / 'docs' / 'SECURITY.md').exists()
+    gitignore = (base / '.gitignore').read_text(encoding='utf-8')
+    for ignored in ['.env', 'venv/', '__pycache__/', '.pytest_cache/', '*.pyc', '.DS_Store', 'backups/']:
+        assert ignored in gitignore
+    assert 'python-dotenv' in (base / 'requirements.txt').read_text(encoding='utf-8')
+
+
+def test_env_example_documents_required_runtime_values():
+    example = (app_module.BASE_DIR / '.env.example').read_text(encoding='utf-8')
+
+    for key in [
+        'EQRF_SECRET_KEY=change-this-to-a-long-random-string',
+        'EQRF_PASSWORD=change-this-admin-password',
+        'FLASK_DEBUG=0',
+        'FLASK_RUN_HOST=0.0.0.0',
+        'FLASK_RUN_PORT=8000',
+        'GUNICORN_WORKERS=2',
+        'EQRF_BACKUP_DIR=backups',
+    ]:
+        assert key in example
+
+
+def test_generate_secret_key_script_outputs_hex_key():
+    script = app_module.BASE_DIR / 'scripts' / 'generate_secret_key.py'
+
+    result = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, check=True)
+    key = result.stdout.strip()
+
+    assert re.fullmatch(r'[0-9a-f]{64}', key)
 
 
 def test_login_works_with_eqrf_password(client, monkeypatch):

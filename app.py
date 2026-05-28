@@ -26,8 +26,16 @@ from flask import (
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.utils import secure_filename
 
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - requirements.txt includes python-dotenv.
+    def load_dotenv(*_args, **_kwargs):
+        return False
+
 # ---------------------- Paths & Env ---------------------- #
 BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / '.env')
+
 DATA_DIR = BASE_DIR / 'data'
 PDF_DIR = BASE_DIR / 'pdfs'              # keep PDFs here (matches your zip)
 JPG_DIR = BASE_DIR / 'static' / 'jpgs'   # legacy pre-rendered pages, no longer used by the public viewer
@@ -92,18 +100,30 @@ CHECKLISTS_JSON = DATA_DIR / 'checklists.json'
 AUDIT_LOG_JSON = DATA_DIR / 'audit_log.json'
 PDF_TEXT_CACHE_JSON = DATA_DIR / 'pdf_text_cache.json'
 
-UNSAFE_SECRET_VALUES = {'', 'change-me', 'change-this', 'change-this-to-a-long-random-string'}
-UNSAFE_PASSWORD_VALUES = {'', 'admin', 'change-this', 'change-this-admin-password'}
+UNSAFE_SECRET_VALUES = {
+    '',
+    'admin',
+    'change-me',
+    'change-this',
+    'change-this-to-a-long-random-string',
+    'dev-secret-key',
+    'password',
+    'secret',
+    'your-strong-secret-key',
+}
+UNSAFE_PASSWORD_VALUES = {'', 'admin', 'change-me', 'change-this', 'change-this-admin-password', 'password'}
 
 
 def production_safety_warnings(settings: Settings = SETTINGS) -> List[str]:
     warnings: List[str] = []
     secret = str(settings.secret_key or '').strip()
     password = str(settings.admin_password or '').strip()
-    if secret in UNSAFE_SECRET_VALUES:
+    if secret.lower() in UNSAFE_SECRET_VALUES or len(secret) < 32:
         warnings.append('EQRF_SECRET_KEY is not set to a production-safe value.')
-    if password in UNSAFE_PASSWORD_VALUES:
+    if password.lower() in UNSAFE_PASSWORD_VALUES or len(password) < 8:
         warnings.append('EQRF_PASSWORD is not set to a production-safe value.')
+    if settings.debug:
+        warnings.append('FLASK_DEBUG=1 is enabled. Use FLASK_DEBUG=0 for production-style local-network service.')
     return warnings
 
 
@@ -1847,7 +1867,7 @@ def health():
     return jsonify({
         'status': 'ok',
         'app': 'EQRF',
-        'mode': 'development' if app.debug else 'production',
+        'mode': 'development' if (app.debug or Settings().debug) else 'production',
     })
 
 

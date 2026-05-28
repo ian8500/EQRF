@@ -84,8 +84,8 @@ By default, `python app.py` listens on port `8000` and uses `FLASK_DEBUG=0` unle
 Useful environment variables:
 
 ```bash
-export EQRF_SECRET_KEY="change-this-to-a-long-random-value"
-export EQRF_PASSWORD="change-this-admin-password"
+export EQRF_SECRET_KEY="paste-generated-key-here"
+export EQRF_PASSWORD="your-admin-password"
 export FLASK_DEBUG=1
 export FLASK_RUN_HOST=0.0.0.0
 export FLASK_RUN_PORT=8000
@@ -94,7 +94,7 @@ export EQRF_BACKUP_DIR=backups
 export EQRF_MAX_UPLOAD_MB=100
 ```
 
-`.env.example` is included as a reference for the required values. The app reads environment variables supplied by the shell, launch script, or systemd.
+`.env.example` is included as a reference for the required values. The app loads `.env` through `python-dotenv`, then reads environment variables supplied by the shell, launch script, or systemd.
 
 For normal development:
 
@@ -103,6 +103,40 @@ source venv/bin/activate
 python -m pytest
 python app.py
 ```
+
+## Environment and Secrets
+
+EQRF uses environment variables for local secrets. Do not hardcode or commit real secrets.
+
+- `EQRF_SECRET_KEY`: Flask session signing key. This protects Admin login cookies from tampering.
+- `EQRF_PASSWORD`: Admin login password.
+- `FLASK_DEBUG`: set `1` only for development debugging. Use `0` for production-style service use.
+- `.env`: local untracked environment file for Mac testing or `/opt/EQRF/.env` on Linux.
+- `.env.example`: committed template with placeholders only.
+
+Generate a strong secret key:
+
+```bash
+python scripts/generate_secret_key.py
+```
+
+Mac setup:
+
+```bash
+cp .env.example .env
+python scripts/generate_secret_key.py
+nano .env
+```
+
+Production Linux/Beelink setup uses:
+
+```text
+/opt/EQRF/.env
+```
+
+The systemd service reads that file through `EnvironmentFile=/opt/EQRF/.env`.
+
+Unsafe values such as `change-me`, `change-this`, `admin`, `password`, `secret`, short secret keys, and short Admin passwords trigger startup and Admin health warnings. See [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Production-Style Local Run
 
@@ -233,7 +267,11 @@ cp .env.example .env
 nano .env
 ```
 
-For production, edit at least `EQRF_SECRET_KEY` and `EQRF_PASSWORD`. `/opt/EQRF/.env` is read by the systemd service.
+For production, edit at least `EQRF_SECRET_KEY` and `EQRF_PASSWORD`. `/opt/EQRF/.env` is read by the systemd service. Generate `EQRF_SECRET_KEY` with:
+
+```bash
+python scripts/generate_secret_key.py
+```
 
 An example service file is included at:
 
@@ -561,7 +599,8 @@ Important notes:
 - Do not expose the app directly to the public internet.
 - Change the default admin password with `EQRF_PASSWORD`.
 - Set a strong `EQRF_SECRET_KEY`.
-- Admin health warnings are shown if `EQRF_SECRET_KEY` or `EQRF_PASSWORD` are still default placeholder values.
+- Admin health warnings are shown if `EQRF_SECRET_KEY` or `EQRF_PASSWORD` are missing, short, or known unsafe placeholder values.
+- Never commit `.env` to GitHub.
 - Keep the server operating system patched.
 - Restrict access to the server and repository files.
 - Back up `data/`, `pdfs/`, and any legacy assets regularly.
