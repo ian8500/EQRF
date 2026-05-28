@@ -322,5 +322,44 @@
     "target_path": "admin",
     "summary": "Admin logged out",
     "details": {}
+  },
+  {
+    "timestamp": "2026-05-28T10:45:47Z",
+    "user": "admin",
+    "action": "admin_login_success",
+    "target_type": "auth",
+    "target_path": "admin",
+    "summary": "Admin login successful",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-05-28T10:46:30Z",
+    "user": "admin",
+    "action": "upload_extract",
+    "target_type": "extract",
+    "target_path": "ADC/SID/NORBO.pdf",
+    "summary": "Uploaded extract NORBO.pdf to ADC/SID",
+    "details": {
+      "version": "1.0",
+      "effective_date": "2026-05-28",
+      "expiry_date": "N/A",
+      "review_date": "N/A",
+      "status": "published"
+    }
+  },
+  {
+    "timestamp": "2026-05-28T10:46:52Z",
+    "user": "admin",
+    "action": "update_extract_metadata",
+    "target_type": "extract",
+    "target_path": "ADC/SID/LUSIV_.pdf",
+    "summary": "Updated extract metadata for LUSIV_.pdf",
+    "details": {
+      "version": "1.0",
+      "effective_date": "2026-05-28",
+      "expiry_date": "N/A",
+      "review_date": "N/A",
+      "status": "published"
+    }
   }
 ]
