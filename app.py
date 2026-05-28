@@ -45,7 +45,7 @@ class Settings:
 
     secret_key: str = field(default_factory=lambda: os.environ.get('EQRF_SECRET_KEY') or os.environ.get('SECRET_KEY', 'change-me'))
     admin_password: str = field(default_factory=lambda: os.environ.get('EQRF_PASSWORD', 'admin'))
-    debug: bool = field(default_factory=lambda: os.environ.get('FLASK_DEBUG', '0') in {'1', 'true', 'True'})
+    debug: bool = field(default_factory=lambda: str(os.environ.get('FLASK_DEBUG', '0')).strip().lower() in {'1', 'true'})
     host: str = field(default_factory=lambda: os.environ.get('FLASK_RUN_HOST', '0.0.0.0'))
     port: int = field(default_factory=lambda: int(os.environ.get('FLASK_RUN_PORT', os.environ.get('PORT', '8000'))))
     max_upload_mb: int = field(default_factory=lambda: int(os.environ.get('EQRF_MAX_UPLOAD_MB', '100')))
@@ -55,6 +55,7 @@ SETTINGS = Settings()
 
 app = Flask(__name__)
 app.secret_key = SETTINGS.secret_key
+app.debug = False
 app.config['MAX_CONTENT_LENGTH'] = SETTINGS.max_upload_mb * 1024 * 1024
 
 # Strong client caching for static assets and locally served PDFs.
@@ -1826,7 +1827,7 @@ def health():
     return jsonify({
         'status': 'ok',
         'app': 'EQRF',
-        'mode': 'development' if SETTINGS.debug else 'production',
+        'mode': 'development' if app.debug else 'production',
     })
 
 

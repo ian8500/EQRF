@@ -257,6 +257,7 @@
       <div class="health-grid compact-health">
         <div>
           <h4>Production safety</h4>
+          <p class="admin-muted">Checks: EQRF_SECRET_KEY / EQRF_PASSWORD</p>
           {% if health.production_warnings %}
             <ul class="health-list">
               {% for warning in health.production_warnings %}
