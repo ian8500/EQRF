@@ -238,9 +238,28 @@ def test_environment_secret_documentation_and_helpers_exist():
     assert (base / 'scripts' / 'generate_secret_key.py').exists()
     assert (base / 'docs' / 'SECURITY.md').exists()
     gitignore = (base / '.gitignore').read_text(encoding='utf-8')
-    for ignored in ['.env', 'venv/', '__pycache__/', '.pytest_cache/', '*.pyc', '.DS_Store', 'backups/']:
+    for ignored in ['.env', '.env.save', 'venv/', '__pycache__/', '.pytest_cache/', '*.pyc', '.DS_Store', 'backups/']:
         assert ignored in gitignore
     assert 'python-dotenv' in (base / 'requirements.txt').read_text(encoding='utf-8')
+
+
+def test_cleanup_removed_obsolete_templates_and_documents_report():
+    base = app_module.BASE_DIR
+    obsolete_templates = [
+        'admin_nav_snippet.html',
+        'checklist_admin.html',
+        'edit_checklist.html',
+        'index.html',
+        'new_checklist.html',
+        'pdf_viewer.html',
+        'register_pdf.html',
+    ]
+
+    for template in obsolete_templates:
+        assert not (base / 'templates' / template).exists()
+    assert not (base / 'static' / 'images' / 'PDF Documents.html').exists()
+    assert not (base / 'static' / 'images' / 'Glasgow.jpg').exists()
+    assert (base / 'CLEANUP_REPORT.md').exists()
 
 
 def test_env_example_documents_required_runtime_values():

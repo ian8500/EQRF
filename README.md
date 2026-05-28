@@ -59,6 +59,7 @@ tests/                  pytest test suite.
 scripts/                Local helper scripts for Gunicorn startup, service install, health checks, and backups.
 deploy/                 Deployment examples, including systemd service, health timer, and backup timer templates.
 docs/                   Project maintenance documentation.
+CLEANUP_REPORT.md       Notes from the latest conservative project cleanup pass.
 requirements.txt        Python dependencies.
 README.md               Project overview, setup, deployment, and maintenance guide.
 AGENTS.md               Repository working instructions for future Codex runs.
@@ -672,6 +673,8 @@ git push origin feature/name
 ```
 
 Keep commits small and focused. Do not remove operational PDFs, JSON data, audit logs, or checklist content unless explicitly requested.
+
+The repository should not track local virtual environments, bytecode caches, `.DS_Store` files, `.env`, or backup archives. These are covered by `.gitignore`.
 
 ## Documentation Discipline
 
