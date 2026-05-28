@@ -130,6 +130,7 @@ function saveChecklistState() {
     const state = {
       scale: 1,
       rotation: 0,
+      defaultRotation: 0,
       mode: "custom",
       pdf: null,
       pageCount: 0,
@@ -183,6 +184,20 @@ function saveChecklistState() {
       if (!state.pdf) return null;
       const page = await state.pdf.getPage(1);
       return page.getViewport({ scale: 1, rotation: state.rotation });
+    }
+
+    async function calculateDefaultRotation(parts) {
+      if (!state.pdf) return 0;
+      try {
+        const page = await state.pdf.getPage(1);
+        const viewport = page.getViewport({ scale: 1, rotation: 0 });
+        const naturalLandscape = viewport.width >= viewport.height;
+        const documentOrientation = (parts?.shell?.dataset.orientation || "portrait").toLowerCase() === "landscape" ? "landscape" : "portrait";
+        const desiredLandscape = documentOrientation === "landscape";
+        return naturalLandscape === desiredLandscape ? 0 : 90;
+      } catch (_) {
+        return 0;
+      }
     }
 
     async function scaleForWidth(parts) {
@@ -401,7 +416,7 @@ function saveChecklistState() {
     }
 
     function resetViewer() {
-      state.rotation = 0;
+      state.rotation = state.defaultRotation;
       state.mode = "custom";
       state.scale = 1;
       applyViewerLayout({ preserve: false });
@@ -432,6 +447,8 @@ function saveChecklistState() {
       try {
         state.pdf = await pdfjsLib.getDocument(parts.shell.dataset.pdfUrl).promise;
         state.pageCount = state.pdf.numPages || Number(parts.shell.dataset.pageCount) || 0;
+        state.defaultRotation = await calculateDefaultRotation(parts);
+        state.rotation = state.defaultRotation;
         ensurePageFrames(parts);
         updateIndicators(viewer());
         await applyViewerLayout({ preserve: false });

@@ -500,6 +500,7 @@ The current viewer architecture uses original source PDFs directly.
 - `/pdfs/<filename>` only serves registered local PDFs.
 - Flask `send_from_directory(..., conditional=True)` is used so browsers can make efficient local requests.
 - Public extract validity depends on the source PDF existing and governance metadata being public.
+- Extract orientation metadata (`portrait` or `landscape`) controls the initial PDF.js display orientation. Reset View returns to that tagged orientation.
 
 JPG rendering is no longer part of the runtime viewer or upload workflow.
 

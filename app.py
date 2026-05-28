@@ -379,6 +379,13 @@ def safe_path_parts(path: Any) -> List[str]:
     return normalised.split('/')
 
 
+def normalise_orientation(value: Any, default: str = 'portrait') -> str:
+    text = str(value or '').strip().lower()
+    if text in {'landscape', 'portrait'}:
+        return text
+    return default if default in {'landscape', 'portrait'} else 'portrait'
+
+
 def normalise_file_entry(entry: Any) -> Dict[str, Any]:
     """Return a consistent dict for legacy string and newer dict file entries."""
     if isinstance(entry, dict):
@@ -386,7 +393,7 @@ def normalise_file_entry(entry: Any) -> Dict[str, Any]:
         item['pdf'] = str(item.get('pdf') or '')
         if not isinstance(item.get('jpgs'), list):
             item['jpgs'] = []
-        item.setdefault('orientation', 'portrait')
+        item['orientation'] = normalise_orientation(item.get('orientation'))
         metadata = normalise_content_metadata(item, item.get('title') or Path(item['pdf']).stem or None)
         item.update(metadata)
         return item
@@ -1066,6 +1073,19 @@ def get_pdf_page_count(filename: str) -> int:
         return 0
 
 
+def detect_pdf_orientation_from_path(pdf_path: Path) -> str:
+    try:
+        if not pdf_path.is_file():
+            return 'portrait'
+        from pypdf import PdfReader
+        page = PdfReader(str(pdf_path)).pages[0]
+        width = float(page.mediabox.width)
+        height = float(page.mediabox.height)
+        return 'landscape' if width >= height else 'portrait'
+    except Exception:
+        return 'portrait'
+
+
 def get_valid_jpgs_for_pdf(filename: str, metadata_jpgs: Optional[Iterable[str]] = None) -> List[str]:
     valid: List[str] = []
     seen = set()
@@ -1195,7 +1215,7 @@ def public_extract_item(entry: Any, category: str) -> Optional[Dict[str, Any]]:
     filename = file_entry_name(entry)
     metadata = normalise_file_entry(entry)
     page_count = int(metadata.get('page_count') or 0) or get_pdf_page_count(filename) or 1
-    orientation = metadata.get('orientation') or 'portrait'
+    orientation = normalise_orientation(metadata.get('orientation'))
     return {
         'category': category,
         'entry': entry,
@@ -2006,7 +2026,7 @@ def extracts_viewer(category, filename):
         return _unavailable('Extract unavailable', 'The local source PDF is missing and must be repaired in Admin.', 'Back to Extracts', 'extracts_index')
 
     page_count = int(item.get('page_count') or 0) or get_pdf_page_count(filename) or 1
-    orientation = item.get('orientation') or 'portrait'
+    orientation = normalise_orientation(item.get('orientation'))
 
     item = {
         'pdf': filename,
@@ -2162,7 +2182,7 @@ def upload_pdf():
                 if f.read(4) != b'%PDF':
                     raise ValueError('Not a PDF.')
 
-            orientation = 'portrait' if orientation_mode == 'auto' else orientation_mode
+            orientation = detect_pdf_orientation_from_path(tmp_pdf) if orientation_mode == 'auto' else normalise_orientation(orientation_mode)
             existing_entry = _find_file_entry(node, safe_name) if node is not None else None
             existing_metadata = normalise_file_entry(existing_entry) if existing_entry else {}
             page_count = 0
@@ -2227,7 +2247,7 @@ def admin_extract_edit():
     if request.method == 'POST':
         try:
             metadata = metadata_from_form(item.get('title') or _pdf_base(filename))
-            orientation = request.form.get('orientation') or item.get('orientation') or 'portrait'
+            orientation = normalise_orientation(request.form.get('orientation') or item.get('orientation'))
             if orientation not in {'portrait', 'landscape'}:
                 raise ValueError('Invalid orientation selection.')
             item.update(metadata)

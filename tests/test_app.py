@@ -29,6 +29,7 @@ from app import (
     metadata_status_label,
     normalise_file_entry,
     normalise_category_path,
+    normalise_orientation,
     production_safety_warnings,
     get_general_reference_entries,
     get_cached_pdf_text_pages,
@@ -432,6 +433,14 @@ def test_file_entry_helpers_support_string_and_dict_entries():
     assert file_entry_jpgs(entry) == ['MATS2_page1.jpg']
     assert normalise_file_entry(entry)['version'] == '2.1'
     assert normalise_file_entry(entry)['review_date'] == '2026-06-27'
+
+
+def test_extract_orientation_normalises_legacy_values():
+    assert normalise_orientation('Landscape') == 'landscape'
+    assert normalise_orientation('LANDSCAPE') == 'landscape'
+    assert normalise_orientation('portrait') == 'portrait'
+    assert normalise_orientation('') == 'portrait'
+    assert normalise_file_entry({'pdf': 'A.pdf', 'orientation': 'Landscape'})['orientation'] == 'landscape'
 
 
 def test_blank_metadata_fields_normalise_to_na_and_invalid_dates_reject():
@@ -905,6 +914,36 @@ def test_extract_viewer_uses_professional_pdf_viewer_controls(client, isolated_c
     assert 'pdf-page-image extract-image' not in html
 
 
+def test_extract_viewer_passes_landscape_orientation_to_pdf_shell(client, isolated_content):
+    isolated_content.publish_pdf('Landscape.pdf')
+    isolated_content.extracts.update({
+        'AIR': {
+            '__files__': [{'pdf': 'Landscape.pdf', 'title': 'Landscape Extract', 'orientation': 'Landscape'}],
+        },
+    })
+
+    response = client.get('/viewer/AIR/Landscape.pdf')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'data-orientation="landscape"' in html
+
+
+def test_extract_viewer_passes_portrait_orientation_to_pdf_shell(client, isolated_content):
+    isolated_content.publish_pdf('Portrait.pdf')
+    isolated_content.extracts.update({
+        'AIR': {
+            '__files__': [{'pdf': 'Portrait.pdf', 'title': 'Portrait Extract', 'orientation': 'portrait'}],
+        },
+    })
+
+    response = client.get('/viewer/AIR/Portrait.pdf')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'data-orientation="portrait"' in html
+
+
 def test_extract_viewer_uses_pdfjs_stack_without_static_jpg_images(client, isolated_content):
     jpgs = isolated_content.publish_pdf('Multi.pdf', ['Multi_page1.jpg', 'Multi_page2.jpg'])
     isolated_content.extracts.update({'Tower': {'__files__': [{'pdf': 'Multi.pdf', 'jpgs': jpgs, 'title': 'Multi'}]}})
@@ -926,6 +965,9 @@ def test_pdf_viewer_script_handles_fit_modes_rotation_and_layout():
     assert 'state.mode = "height"' in script
     assert 'state.mode = "custom"' in script
     assert 'state.rotation = (state.rotation + 90) % 360' in script
+    assert 'defaultRotation: 0' in script
+    assert 'state.defaultRotation = await calculateDefaultRotation(parts)' in script
+    assert 'state.rotation = state.defaultRotation' in script
     assert 'pdfjsLib.getDocument' in script
     assert 'page.render' in script
     assert 'state.mode === "width"' in script
