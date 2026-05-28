@@ -2,6 +2,11 @@
   --header-h: 0px;
   --toolbar-h: 44px;
   --toolbar-gap: 6px;
+  --space-xs: clamp(4px, 0.7vw, 7px);
+  --space-sm: clamp(6px, 1vw, 10px);
+  --space-md: clamp(10px, 1.5vw, 16px);
+  --touch-target: 38px;
+  --card-min: 180px;
   --bg: #050b14;
   --bg-2: #081523;
   --panel: rgba(9, 24, 38, 0.9);
@@ -66,6 +71,7 @@ html {
 body {
   min-height: 100vh;
   margin: 0;
+  overflow-x: hidden;
   color: var(--text);
   font-family: var(--font);
   font-size: 16px;
@@ -148,12 +154,12 @@ summary:focus-visible {
 
 .top-bar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto minmax(190px, 0.8fr);
-  gap: 12px;
+  grid-template-columns: minmax(150px, auto) 1fr;
+  gap: var(--space-sm);
   align-items: center;
   width: min(1440px, 100%);
   margin: 0 auto;
-  padding: 8px clamp(12px, 2.4vw, 24px);
+  padding: var(--space-xs) clamp(10px, 1.8vw, 18px);
 }
 
 .brand-block {
@@ -166,7 +172,7 @@ summary:focus-visible {
   margin: 0;
   color: var(--text);
   font-family: var(--mono);
-  font-size: clamp(1rem, 2vw, 1.32rem);
+  font-size: clamp(0.96rem, 1.5vw, 1.16rem);
   font-weight: 800;
   letter-spacing: 0;
 }
@@ -182,8 +188,8 @@ summary:focus-visible {
 .top-nav {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
+  justify-content: flex-end;
+  gap: var(--space-xs);
 }
 
 .status-strip {
@@ -232,7 +238,7 @@ summary:focus-visible {
   width: min(1440px, 100%);
   min-height: calc(100vh - var(--header-h));
   margin: 0 auto;
-  padding: clamp(10px, 2vw, 22px);
+  padding: clamp(6px, 1.2vw, 14px);
 }
 
 h1,
@@ -246,7 +252,7 @@ h3 {
 .page-shell,
 .ops-panel {
   display: grid;
-  gap: 12px;
+  gap: var(--space-sm);
 }
 
 .page-heading,
@@ -254,8 +260,8 @@ h3 {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 10px;
-  padding-bottom: 8px;
+  gap: var(--space-sm);
+  padding-bottom: var(--space-xs);
   border-bottom: 1px solid var(--line);
 }
 
@@ -270,7 +276,7 @@ h3 {
 }
 
 .page-title {
-  font-size: clamp(1.35rem, 3vw, 2.35rem);
+  font-size: clamp(1.1rem, 2.2vw, 1.7rem);
   line-height: 1;
   text-transform: uppercase;
 }
@@ -281,10 +287,12 @@ h3 {
   color: var(--muted);
 }
 
+.grid-responsive,
 .ops-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--card-min)), 1fr));
+  gap: clamp(0.5rem, 1.2vw, 1rem);
+  align-items: stretch;
 }
 
 .ops-card,
@@ -293,9 +301,9 @@ h3 {
 .card {
   position: relative;
   display: grid;
-  gap: 12px;
-  min-height: 150px;
-  padding: 18px;
+  gap: var(--space-sm);
+  min-height: clamp(82px, 12vw, 128px);
+  padding: clamp(12px, 1.8vw, 16px);
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
@@ -332,9 +340,10 @@ h3 {
 .command-card strong,
 .extract-card strong {
   font-family: var(--mono);
-  font-size: clamp(1.2rem, 2vw, 1.55rem);
+  font-size: clamp(1rem, 1.7vw, 1.35rem);
   line-height: 1.05;
   text-transform: uppercase;
+  overflow-wrap: anywhere;
 }
 
 .tile-code {
@@ -362,9 +371,10 @@ h3 {
 .button-group,
 .extracts-category-buttons,
 .document-grid {
+  --card-min: 180px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--card-min)), 1fr));
+  gap: clamp(0.5rem, 1.1vw, 0.9rem);
   align-items: stretch;
 }
 
@@ -377,8 +387,8 @@ button[type="submit"] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 38px;
-  padding: 0.56rem 0.82rem;
+  min-height: var(--touch-target);
+  padding: 0.42rem 0.68rem;
   border: 1px solid rgba(51, 199, 255, 0.36);
   border-radius: var(--radius);
   color: var(--text);
@@ -431,23 +441,25 @@ button[type="submit"]:hover {
 }
 
 .quick-ref-grid {
+  --card-min: 170px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--card-min)), 1fr));
+  gap: clamp(0.5rem, 1.1vw, 0.85rem);
 }
 
 .general-reference-section {
-  margin-top: clamp(18px, 4vw, 34px);
+  margin-top: clamp(12px, 2.5vw, 22px);
 }
 
 .general-reference-grid {
+  --card-min: 170px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--card-min)), 1fr));
+  gap: clamp(0.5rem, 1.1vw, 0.85rem);
 }
 
 .quick-ref-card {
-  min-height: 94px;
+  min-height: 72px;
   border-color: rgba(82, 255, 157, 0.32);
 }
 
@@ -464,19 +476,20 @@ button[type="submit"]:hover {
 }
 
 .checklist-panel {
-  max-width: 980px;
+  width: min(1180px, 100%);
+  max-width: none;
   margin: 0 auto;
 }
 
 #checklist-sticky {
   position: sticky;
-  top: calc(var(--header-h) + 6px);
+  top: calc(var(--header-h) + var(--toolbar-gap));
   z-index: 900;
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 8px;
+  gap: var(--space-xs);
   align-items: center;
-  padding: 8px 10px;
+  padding: 6px 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: rgba(6, 18, 29, 0.94);
@@ -492,7 +505,7 @@ button[type="submit"]:hover {
 }
 
 .checklist-progress {
-  margin-top: 2px;
+  margin-top: 1px;
   color: var(--green);
   font-family: var(--mono);
   font-size: 0.76rem;
@@ -503,19 +516,19 @@ button[type="submit"]:hover {
 .checklist-action-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-xs);
   align-items: center;
   justify-content: flex-end;
 }
 
 .checklist-action-bar.bottom {
   justify-content: center;
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 .checklist-list {
   display: grid;
-  gap: 10px;
+  gap: 6px;
   padding: 0;
   margin: 0;
   list-style: none;
@@ -524,10 +537,10 @@ button[type="submit"]:hover {
 .checklist-row label {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 14px;
+  gap: 10px;
   align-items: center;
-  min-height: 64px;
-  padding: 14px 16px;
+  min-height: 52px;
+  padding: 10px 12px;
   border: 1px solid rgba(124, 216, 255, 0.18);
   border-radius: var(--radius);
   background: rgba(10, 26, 42, 0.88);
@@ -540,15 +553,15 @@ button[type="submit"]:hover {
 }
 
 .checklist-item {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   margin: 0;
   accent-color: var(--green);
 }
 
 .checklist-row span {
   color: var(--text);
-  font-size: clamp(1rem, 1.8vw, 1.18rem);
+  font-size: clamp(0.96rem, 1.45vw, 1.1rem);
   font-weight: 650;
 }
 
@@ -559,8 +572,8 @@ button[type="submit"]:hover {
 }
 
 .checklist-section {
-  margin: 8px 0 0;
-  padding: 10px 14px;
+  margin: 6px 0 0;
+  padding: 8px 12px;
   border: 1px solid rgba(255, 200, 87, 0.38);
   border-radius: var(--radius);
   color: var(--amber);
@@ -598,7 +611,7 @@ button[type="submit"]:hover {
 
 .extract-card,
 .command-card {
-  min-height: 132px;
+  min-height: clamp(78px, 10vw, 118px);
   border: 1px solid rgba(124, 216, 255, 0.24);
   cursor: pointer;
   text-align: left;
@@ -624,17 +637,17 @@ button[type="submit"]:hover {
 }
 
 .extract-title {
-  margin: 0 0 12px;
+  margin: 0;
   font-family: var(--mono);
-  font-size: clamp(1.2rem, 3vw, 1.8rem);
+  font-size: clamp(1.05rem, 2.3vw, 1.48rem);
   text-align: center;
   text-transform: uppercase;
 }
 
 .pdf-viewer-shell {
   display: grid;
-  gap: 8px;
-  min-height: 60vh;
+  gap: var(--space-xs);
+  min-height: calc(100svh - var(--header-h) - 12px);
 }
 
 .pdf-toolbar {
@@ -643,13 +656,13 @@ button[type="submit"]:hover {
   z-index: 900;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-xs);
   align-items: center;
   justify-content: center;
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
   margin: 0 auto;
-  padding: 6px;
+  padding: 4px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);
   background: rgba(6, 18, 29, 0.94);
@@ -659,18 +672,19 @@ button[type="submit"]:hover {
 }
 
 .pdf-toolbar button {
-  min-width: 96px;
+  min-width: auto;
 }
 
 .pdf-toolbar .btn {
-  min-width: 96px;
+  min-width: auto;
 }
 
 .pdf-scroll {
   width: 100%;
-  max-height: calc(100vh - var(--header-h) - 96px);
-  min-height: 420px;
-  padding: 10px;
+  height: calc(100svh - var(--header-h) - var(--toolbar-h) - 44px);
+  max-height: calc(100vh - var(--header-h) - var(--toolbar-h) - 44px);
+  min-height: min(70vh, 500px);
+  padding: 6px;
   border: 1px solid rgba(124, 216, 255, 0.16);
   border-radius: var(--radius-lg);
   background:
@@ -683,7 +697,7 @@ button[type="submit"]:hover {
 
 .pdf-page-stack {
   display: grid;
-  gap: 22px;
+  gap: clamp(10px, 1.8vw, 18px);
   width: 100%;
   justify-items: center;
   align-items: start;
@@ -702,10 +716,10 @@ button[type="submit"]:hover {
 
 .pdf-page figcaption {
   position: absolute;
-  top: 8px;
-  left: 8px;
+  top: 6px;
+  left: 6px;
   z-index: 2;
-  padding: 4px 8px;
+  padding: 3px 7px;
   border-radius: 999px;
   color: #13202b;
   background: rgba(255, 255, 255, 0.84);
@@ -765,8 +779,8 @@ button[type="submit"]:hover {
 .page-indicator {
   display: inline-flex;
   align-items: center;
-  min-height: 36px;
-  padding: 0 10px;
+  min-height: 34px;
+  padding: 0 8px;
   border: 1px solid rgba(124, 216, 255, 0.2);
   border-radius: var(--radius);
   color: var(--muted);
@@ -781,7 +795,7 @@ button[type="submit"]:hover {
   display: flex;
   flex: 1 1 100%;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-xs);
   align-items: center;
   justify-content: center;
   margin: 0;
@@ -790,7 +804,7 @@ button[type="submit"]:hover {
 .pdf-search-input {
   flex: 1 1 240px;
   min-width: min(100%, 220px);
-  min-height: 42px;
+  min-height: var(--touch-target);
 }
 
 .pdf-search-results {
@@ -840,12 +854,12 @@ button[type="submit"]:hover {
 }
 
 .admin-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   align-items: start;
 }
 
 .admin-console {
-  gap: 18px;
+  gap: var(--space-md);
 }
 
 .admin-heading {
@@ -854,12 +868,12 @@ button[type="submit"]:hover {
 
 .admin-section-nav {
   position: sticky;
-  top: calc(var(--header-h, 0px) + 8px);
+  top: calc(var(--header-h, 0px) + var(--toolbar-gap));
   z-index: 12;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px;
+  gap: var(--space-xs);
+  padding: 6px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: rgba(6, 18, 29, 0.82);
@@ -871,8 +885,8 @@ button[type="submit"]:hover {
 .admin-section-nav a {
   display: inline-flex;
   align-items: center;
-  min-height: 38px;
-  padding: 0 12px;
+  min-height: var(--touch-target);
+  padding: 0 10px;
   border: 1px solid rgba(124, 216, 255, 0.22);
   border-radius: var(--radius);
   color: var(--cyan);
@@ -892,8 +906,8 @@ button[type="submit"]:hover {
 
 .admin-section {
   display: grid;
-  gap: 14px;
-  padding: clamp(14px, 2vw, 20px);
+  gap: var(--space-sm);
+  padding: clamp(10px, 1.6vw, 16px);
   border: 1px solid rgba(124, 216, 255, 0.18);
   border-radius: var(--radius-lg);
   background:
@@ -950,14 +964,14 @@ button[type="submit"]:hover {
 
 .overview-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: var(--space-sm);
 }
 
 .metric-card {
   position: relative;
-  min-height: 112px;
-  padding: 16px;
+  min-height: 88px;
+  padding: 12px;
   overflow: hidden;
   border: 1px solid rgba(124, 216, 255, 0.24);
   border-radius: var(--radius-lg);
@@ -983,17 +997,17 @@ button[type="submit"]:hover {
 
 .metric-card strong {
   display: block;
-  margin-top: 14px;
+  margin-top: 8px;
   font-family: var(--mono);
-  font-size: clamp(2rem, 4vw, 3.25rem);
+  font-size: clamp(1.5rem, 3vw, 2.4rem);
   line-height: 0.9;
 }
 
 .empty-state {
   display: grid;
-  gap: 12px;
+  gap: var(--space-sm);
   justify-items: start;
-  padding: clamp(18px, 4vw, 30px);
+  padding: clamp(12px, 2.5vw, 22px);
   border: 1px solid rgba(255, 200, 87, 0.28);
   border-radius: var(--radius-lg);
   background:
@@ -1015,9 +1029,9 @@ button[type="submit"]:hover {
 .breadcrumb {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-xs);
   align-items: center;
-  padding: 10px;
+  padding: 6px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: rgba(6, 18, 29, 0.54);
@@ -1027,8 +1041,8 @@ button[type="submit"]:hover {
 .breadcrumb span {
   display: inline-flex;
   align-items: center;
-  min-height: 34px;
-  padding: 0 10px;
+  min-height: 30px;
+  padding: 0 9px;
   border: 1px solid rgba(124, 216, 255, 0.2);
   border-radius: 999px;
   color: var(--cyan);
@@ -1202,8 +1216,8 @@ button[type="submit"]:hover {
 
 .health-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: var(--space-sm);
 }
 
 .health-grid h4 {
@@ -1261,8 +1275,8 @@ button[type="submit"]:hover {
 
 .editor-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
-  gap: 16px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(min(100%, 320px), 0.85fr);
+  gap: var(--space-sm);
   align-items: start;
 }
 
@@ -1689,11 +1703,7 @@ html.theme-night body {
     justify-content: flex-start;
   }
 
-  .ops-grid,
-  .admin-grid,
-  .overview-grid,
-  .editor-grid,
-  .health-grid {
+  .editor-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -1704,11 +1714,11 @@ html.theme-night body {
   }
 
   .main-content {
-    padding: 10px 10px 18px;
+    padding: 8px 8px 14px;
   }
 
   .top-bar {
-    padding: 8px 10px;
+    padding: 6px 8px;
   }
 
   .top-nav {
@@ -1718,7 +1728,7 @@ html.theme-night body {
 
   .nav-button {
     width: 100%;
-    min-height: 42px;
+    min-height: 38px;
   }
 
   .page-heading,
@@ -1752,24 +1762,54 @@ html.theme-night body {
   .button-group,
   .extracts-category-buttons,
   .document-grid,
-  .quick-ref-grid {
-    grid-template-columns: 1fr;
+  .quick-ref-grid,
+  .general-reference-grid,
+  .ops-grid {
+    --card-min: 150px;
   }
 
   .pdf-toolbar {
     width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
   }
 
   .pdf-toolbar button,
   .pdf-toolbar .btn {
-    flex: 1 1 120px;
+    flex: 1 1 104px;
     min-width: 0;
   }
 
   .pdf-scroll {
-    max-height: calc(100vh - var(--header-h) - 138px);
-    min-height: 360px;
-    padding: 8px;
+    height: calc(100svh - var(--header-h) - var(--toolbar-h) - 32px);
+    max-height: calc(100vh - var(--header-h) - var(--toolbar-h) - 32px);
+    min-height: 320px;
+    padding: 6px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 820px) {
+  :root {
+    --toolbar-gap: 4px;
+  }
+
+  .main-content {
+    padding-block: 6px;
+  }
+
+  .page-heading,
+  .panel-heading {
+    padding-bottom: 4px;
+  }
+
+  .pdf-toolbar,
+  #checklist-sticky {
+    padding: 4px;
+  }
+
+  .pdf-scroll {
+    height: calc(100svh - var(--header-h) - var(--toolbar-h) - 26px);
+    max-height: calc(100vh - var(--header-h) - var(--toolbar-h) - 26px);
   }
 }
 

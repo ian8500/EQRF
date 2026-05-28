@@ -26,14 +26,22 @@
   <!-- Set --header-h early so sticky header never overlaps content -->
   <script>
   (function headerOffsetWatcher(){
-    function setHeaderHeight(){
+    function setLayoutHeights(){
       const header = document.querySelector('.site-header');
       const h = header ? Math.ceil(header.getBoundingClientRect().height) : 0;
+      const toolbar = document.querySelector('.pdf-toolbar, #checklist-sticky');
+      const toolbarHeight = toolbar ? Math.ceil(toolbar.getBoundingClientRect().height) : 44;
       document.documentElement.style.setProperty('--header-h', h + 'px');
+      document.documentElement.style.setProperty('--toolbar-h', toolbarHeight + 'px');
     }
-    document.addEventListener('DOMContentLoaded', setHeaderHeight);
-    window.addEventListener('load', setHeaderHeight, { passive: true });
-    window.addEventListener('resize', setHeaderHeight);
+    window.eqrfSetLayoutHeights = setLayoutHeights;
+    document.addEventListener('DOMContentLoaded', setLayoutHeights);
+    window.addEventListener('load', setLayoutHeights, { passive: true });
+    window.addEventListener('resize', setLayoutHeights);
+    window.addEventListener('orientationchange', setLayoutHeights);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', setLayoutHeights);
+    }
   })();
   </script>
 

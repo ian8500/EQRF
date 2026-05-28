@@ -997,6 +997,20 @@ def test_extract_viewer_uses_professional_pdf_viewer_controls(client, isolated_c
     assert 'pdf-page-image extract-image' not in html
 
 
+def test_public_pages_use_responsive_content_grids(client, isolated_content):
+    isolated_content.checklists.update({'Tower': {'GMC': {'Runway': ['Line up']}}})
+    isolated_content.publish_pdf('Grid.pdf')
+    isolated_content.extracts.update({'AIR': {'__files__': [{'pdf': 'Grid.pdf', 'title': 'Grid'}]}})
+
+    home = client.get('/').get_data(as_text=True)
+    checklists = client.get('/checklists').get_data(as_text=True)
+    extracts = client.get('/extracts').get_data(as_text=True)
+
+    assert 'ops-grid grid-responsive' in home
+    assert 'button-group grid-responsive' in checklists
+    assert 'document-grid grid-responsive' in extracts
+
+
 def test_extract_viewer_passes_landscape_orientation_to_pdf_shell(client, isolated_content):
     isolated_content.publish_pdf('Landscape.pdf')
     isolated_content.extracts.update({
@@ -1055,7 +1069,41 @@ def test_pdf_viewer_script_handles_fit_modes_rotation_and_layout():
     assert 'page.render' in script
     assert 'state.mode === "width"' in script
     assert 'state.mode === "height"' in script
+    assert 'orientationchange' in script
+    assert 'visualViewport' in script
+    assert 'scheduleViewerResize' in script
     assert 'scale(${viewerZoom})' not in script
+
+
+def test_responsive_css_includes_fluid_grid_and_compact_layout_rules():
+    css = (app_module.BASE_DIR / 'static' / 'style.css').read_text(encoding='utf-8')
+
+    assert '.grid-responsive' in css
+    assert 'repeat(auto-fit' in css or 'repeat(auto-fill' in css
+    assert 'clamp(' in css
+    assert '--touch-target' in css
+    assert '@media (max-width: 680px)' in css
+    assert '@media (orientation: landscape)' in css
+
+
+def test_base_layout_measures_wrapped_header_and_toolbar():
+    base = (app_module.BASE_DIR / 'templates' / 'base.html').read_text(encoding='utf-8')
+
+    assert 'eqrfSetLayoutHeights' in base
+    assert '--toolbar-h' in base
+    assert 'orientationchange' in base
+    assert 'visualViewport' in base
+
+
+def test_pdf_viewer_toolbar_is_compact(client, isolated_content):
+    isolated_content.publish_pdf('Compact.pdf')
+    isolated_content.extracts.update({'AIR': {'__files__': [{'pdf': 'Compact.pdf', 'title': 'Compact'}]}})
+
+    response = client.get('/viewer/AIR/Compact.pdf')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'class="pdf-toolbar compact-toolbar"' in html
 
 
 def test_quick_reference_viewer_includes_pdf_search_controls(client, isolated_content):

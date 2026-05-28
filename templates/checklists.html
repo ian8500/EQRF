@@ -10,7 +10,7 @@
   </div>
 
   {% if categories %}
-    <div class="button-group">
+    <div class="button-group grid-responsive">
       {% for name, value in categories.items() %}
         <a class="command-card" href="{{ url_for('checklist_category', category=name) }}">
           <strong>{{ name }}</strong>

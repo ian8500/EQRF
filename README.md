@@ -23,6 +23,7 @@ The app is intended for trusted local network use, not public internet exposure.
 - **PDF viewer**: direct local PDF viewing through vendored PDF.js files in `static/pdfjs/`; no CDN is required.
 - **PDF controls**: 100% default zoom, Zoom +, Zoom -, Fit Width, Fit Height, Rotate, Reset, page count, and scrollable multi-page rendering.
 - **PDF search**: in-document search is available only for General Reference / Quick Reference PDFs. Categorised operational extracts do not show search controls.
+- **Responsive operational layout**: compact headers, toolbars, and fluid card grids designed for desktops, laptops, iPads, and smaller tablets.
 - **Admin panel**: upload PDFs, edit extract metadata, create/edit/delete checklists, view health warnings, view audit log, and trigger client refresh.
 - **Audit log**: append-only JSON audit trail viewable from Admin.
 - **Governance metadata**: version, effective date, expiry date, review date, owner, status, and last updated values for extracts and checklists.

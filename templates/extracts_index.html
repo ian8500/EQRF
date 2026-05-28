@@ -10,7 +10,7 @@
   </div>
 
   {% if categories or root_files %}
-    <div class="document-grid">
+    <div class="document-grid grid-responsive">
       {% for category, value in categories.items() %}
         <a class="extract-card folder" href="{{ url_for('extracts_category', subpath=category) }}">
           <strong>{{ category }}</strong>

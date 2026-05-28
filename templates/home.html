@@ -9,7 +9,7 @@
     </div>
   </div>
 
-  <div class="ops-grid">
+  <div class="ops-grid grid-responsive">
     {% if has_checklists %}
       <a class="ops-card" href="{{ url_for('checklist_index') }}">
         <strong>Checklists</strong>
@@ -45,7 +45,7 @@
         <h3>General Reference</h3>
       </div>
     </div>
-    <div class="quick-ref-grid general-reference-grid">
+    <div class="quick-ref-grid general-reference-grid grid-responsive">
       {% for pdf in general_reference_pdfs %}
         <a class="ops-card quick-ref-card" href="{{ url_for('extracts_viewer', category=pdf.source_category, filename=pdf.filename) }}">
           <strong>{{ pdf.title }}</strong>

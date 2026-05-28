@@ -22,7 +22,7 @@
   {% endif %}
 
   {% if subcategories %}
-    <div class="button-group">
+    <div class="button-group grid-responsive">
       {% for name, value in subcategories.items() %}
         <a class="command-card" href="{{ url_for('checklist_category', category=parent ~ '/' ~ name) }}">
           <strong>{{ name }}</strong>

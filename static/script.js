@@ -441,15 +441,31 @@ function saveChecklistState() {
         if (scrollRenderTimer) window.clearTimeout(scrollRenderTimer);
         scrollRenderTimer = window.setTimeout(() => renderVisiblePages(), 80);
       }, { passive: true });
-      window.addEventListener("resize", () => {
-        if (state.mode === "width" || state.mode === "height") applyViewerLayout();
-      });
+      let resizeTimer = null;
+      const scheduleViewerResize = () => {
+        if (typeof window.eqrfSetLayoutHeights === "function") window.eqrfSetLayoutHeights();
+        if (resizeTimer) window.clearTimeout(resizeTimer);
+        resizeTimer = window.setTimeout(() => {
+          if (state.mode === "width" || state.mode === "height") {
+            applyViewerLayout();
+          } else {
+            updateIndicators(viewer());
+            renderVisiblePages();
+          }
+        }, 120);
+      };
+      window.addEventListener("resize", scheduleViewerResize);
+      window.addEventListener("orientationchange", scheduleViewerResize);
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", scheduleViewerResize);
+      }
       try {
         state.pdf = await pdfjsLib.getDocument(parts.shell.dataset.pdfUrl).promise;
         state.pageCount = state.pdf.numPages || Number(parts.shell.dataset.pageCount) || 0;
         state.defaultRotation = await calculateDefaultRotation(parts);
         state.rotation = state.defaultRotation;
         ensurePageFrames(parts);
+        if (typeof window.eqrfSetLayoutHeights === "function") window.eqrfSetLayoutHeights();
         updateIndicators(viewer());
         await applyViewerLayout({ preserve: false });
       } catch (_) {

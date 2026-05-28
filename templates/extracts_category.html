@@ -22,7 +22,7 @@
   {% endif %}
 
   {% if subcategories or items %}
-    <div class="document-grid">
+    <div class="document-grid grid-responsive">
       {% for key in subcategories.keys() %}
         <a class="extract-card folder" href="{{ url_for('extracts_category', subpath=(category ~ '/' ~ key).lstrip('/')) }}">
           <strong>{{ key }}</strong>
