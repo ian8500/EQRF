@@ -124,5 +124,14 @@
     "target_path": "admin",
     "summary": "Admin login successful",
     "details": {}
+  },
+  {
+    "timestamp": "2026-05-28T06:50:45Z",
+    "user": "admin",
+    "action": "admin_logout",
+    "target_type": "auth",
+    "target_path": "admin",
+    "summary": "Admin logged out",
+    "details": {}
   }
 ]
