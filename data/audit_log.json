@@ -133,5 +133,194 @@
     "target_path": "admin",
     "summary": "Admin logged out",
     "details": {}
+  },
+  {
+    "timestamp": "2026-05-28T09:43:56Z",
+    "user": "admin",
+    "action": "admin_logout",
+    "target_type": "auth",
+    "target_path": "admin",
+    "summary": "Admin logged out",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-05-28T09:44:18Z",
+    "user": "admin",
+    "action": "admin_login_success",
+    "target_type": "auth",
+    "target_path": "admin",
+    "summary": "Admin login successful",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-05-28T09:44:21Z",
+    "user": "admin",
+    "action": "refresh_extract_metadata",
+    "target_type": "extract",
+    "target_path": "AIR/Parking.pdf",
+    "summary": "Refreshed PDF metadata for Parking.pdf",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-05-28T09:44:39Z",
+    "user": "admin",
+    "action": "update_extract_metadata",
+    "target_type": "extract",
+    "target_path": "AIR/Parking.pdf",
+    "summary": "Updated extract metadata for Parking.pdf",
+    "details": {
+      "version": "N/A",
+      "effective_date": "N/A",
+      "expiry_date": "N/A",
+      "review_date": "N/A",
+      "status": "published"
+    }
+  },
+  {
+    "timestamp": "2026-05-28T09:44:44Z",
+    "user": "admin",
+    "action": "admin_logout",
+    "target_type": "auth",
+    "target_path": "admin",
+    "summary": "Admin logged out",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-05-28T09:46:52Z",
+    "user": "admin",
+    "action": "admin_login_success",
+    "target_type": "auth",
+    "target_path": "admin",
+    "summary": "Admin login successful",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-05-28T09:47:22Z",
+    "user": "admin",
+    "action": "delete_extract",
+    "target_type": "extract",
+    "target_path": "AIR/SID/LOMON.pdf",
+    "summary": "Deleted extract LOMON.pdf from AIR/SID",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-05-28T09:48:05Z",
+    "user": "admin",
+    "action": "delete_extract_category",
+    "target_type": "extract_category",
+    "target_path": "AIR/SID",
+    "summary": "Deleted extract category AIR/SID",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-05-28T09:48:19Z",
+    "user": "admin",
+    "action": "delete_extract_category",
+    "target_type": "extract_category",
+    "target_path": "AIR",
+    "summary": "Deleted extract category AIR",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-05-28T09:59:58Z",
+    "user": "admin",
+    "action": "upload_extract",
+    "target_type": "extract",
+    "target_path": "RADAR/ATCSMAC.pdf",
+    "summary": "Uploaded extract ATCSMAC.pdf to RADAR",
+    "details": {
+      "version": "1.0",
+      "effective_date": "2026-05-28",
+      "expiry_date": "N/A",
+      "review_date": "N/A",
+      "status": "published"
+    }
+  },
+  {
+    "timestamp": "2026-05-28T10:00:18Z",
+    "user": "admin",
+    "action": "update_extract_metadata",
+    "target_type": "extract",
+    "target_path": "RADAR/ATCSMAC.pdf",
+    "summary": "Updated extract metadata for ATCSMAC.pdf",
+    "details": {
+      "version": "1.0",
+      "effective_date": "2026-05-28",
+      "expiry_date": "N/A",
+      "review_date": "N/A",
+      "status": "published"
+    }
+  },
+  {
+    "timestamp": "2026-05-28T10:01:44Z",
+    "user": "admin",
+    "action": "upload_extract",
+    "target_type": "extract",
+    "target_path": "ADC/GROUND/AD_Chart.pdf",
+    "summary": "Uploaded extract AD_Chart.pdf to ADC/GROUND",
+    "details": {
+      "version": "1.0",
+      "effective_date": "2026-05-28",
+      "expiry_date": "N/A",
+      "review_date": "N/A",
+      "status": "published"
+    }
+  },
+  {
+    "timestamp": "2026-05-28T10:02:43Z",
+    "user": "admin",
+    "action": "upload_extract",
+    "target_type": "extract",
+    "target_path": "AIR/SID/LUSIV_.pdf",
+    "summary": "Uploaded extract LUSIV_.pdf to AIR/SID",
+    "details": {
+      "version": "1.0",
+      "effective_date": "2026-05-28",
+      "expiry_date": "N/A",
+      "review_date": "N/A",
+      "status": "published"
+    }
+  },
+  {
+    "timestamp": "2026-05-28T10:03:56Z",
+    "user": "admin",
+    "action": "delete_extract_category",
+    "target_type": "extract_category",
+    "target_path": "AIR/SID",
+    "summary": "Deleted extract category AIR/SID",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-05-28T10:05:52Z",
+    "user": "admin",
+    "action": "delete_extract_category",
+    "target_type": "extract_category",
+    "target_path": "AIR",
+    "summary": "Deleted extract category AIR",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-05-28T10:06:47Z",
+    "user": "admin",
+    "action": "upload_extract",
+    "target_type": "extract",
+    "target_path": "ADC/SID/LUSIV_.pdf",
+    "summary": "Uploaded extract LUSIV_.pdf to ADC/SID",
+    "details": {
+      "version": "1.0",
+      "effective_date": "2026-05-28",
+      "expiry_date": "N/A",
+      "review_date": "N/A",
+      "status": "published"
+    }
+  },
+  {
+    "timestamp": "2026-05-28T10:08:28Z",
+    "user": "admin",
+    "action": "admin_logout",
+    "target_type": "auth",
+    "target_path": "admin",
+    "summary": "Admin logged out",
+    "details": {}
   }
 ]

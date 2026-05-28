@@ -436,58 +436,66 @@
       }
     ]
   },
-  "AIR": {
+  "RADAR": {
+    "__files__": [
+      {
+        "pdf": "ATCSMAC.pdf",
+        "jpgs": [],
+        "orientation": "portrait",
+        "page_count": 1,
+        "uploaded_at": "2026-05-28T09:59:58Z",
+        "source": "admin",
+        "title": "ATCSMAC",
+        "version": "1.0",
+        "effective_date": "2026-05-28",
+        "expiry_date": "N/A",
+        "review_date": "N/A",
+        "owner": "N/A",
+        "status": "published",
+        "last_updated": "2026-05-28T10:00:18Z"
+      }
+    ]
+  },
+  "ADC": {
+    "GROUND": {
+      "__files__": [
+        {
+          "pdf": "AD_Chart.pdf",
+          "jpgs": [],
+          "orientation": "landscape",
+          "page_count": 1,
+          "uploaded_at": "2026-05-28T10:01:44Z",
+          "source": "admin",
+          "title": "AD Chart",
+          "version": "1.0",
+          "effective_date": "2026-05-28",
+          "expiry_date": "N/A",
+          "review_date": "N/A",
+          "owner": "N/A",
+          "status": "published",
+          "last_updated": "2026-05-28T10:01:44Z"
+        }
+      ]
+    },
     "SID": {
       "__files__": [
         {
-          "pdf": "LOMON.pdf",
-          "jpgs": [
-            "LOMON_page1.jpg"
-          ],
-          "orientation": "portrait"
-        },
-        {
-          "pdf": "LUSIV.pdf",
-          "jpgs": [
-            "LUSIV_page1.jpg"
-          ],
-          "orientation": "portrait"
-        },
-        {
-          "pdf": "NORBO.pdf",
-          "jpgs": [
-            "NORBO_page1.jpg"
-          ],
-          "orientation": "portrait"
-        },
-        {
-          "pdf": "PERTH.pdf",
-          "jpgs": [
-            "PERTH_page1.jpg"
-          ],
-          "orientation": "landscape"
+          "pdf": "LUSIV_.pdf",
+          "jpgs": [],
+          "orientation": "portrait",
+          "page_count": 1,
+          "uploaded_at": "2026-05-28T10:06:47Z",
+          "source": "admin",
+          "title": "LUSIV_",
+          "version": "1.0",
+          "effective_date": "2026-05-28",
+          "expiry_date": "N/A",
+          "review_date": "N/A",
+          "owner": "N/A",
+          "status": "published",
+          "last_updated": "2026-05-28T10:06:47Z"
         }
-      ],
-      "TEST": {
-        "__files__": [
-          {
-            "pdf": "479621.pdf",
-            "jpgs": [
-              "479621_page1.jpg"
-            ],
-            "orientation": "portrait"
-          }
-        ]
-      }
-    },
-    "__files__": [
-      {
-        "pdf": "Parking.pdf",
-        "jpgs": [
-          "Parking_page1.jpg"
-        ],
-        "orientation": "portrait"
-      }
-    ]
+      ]
+    }
   }
 }
