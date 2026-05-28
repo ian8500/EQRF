@@ -1,0 +1,19 @@
+[Unit]
+Description=EQRF local network application
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=eqrf
+Group=eqrf
+WorkingDirectory=/opt/EQRF
+Environment="EQRF_SECRET_KEY=change-this"
+Environment="EQRF_PASSWORD=change-this"
+Environment="FLASK_DEBUG=0"
+Environment="FLASK_RUN_PORT=8000"
+ExecStart=/opt/EQRF/venv/bin/gunicorn -w 2 -b 0.0.0.0:8000 wsgi:application
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

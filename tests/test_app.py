@@ -1,4 +1,5 @@
 import io
+import importlib
 import re
 from types import SimpleNamespace
 
@@ -28,10 +29,12 @@ from app import (
     metadata_status_label,
     normalise_file_entry,
     normalise_category_path,
+    production_safety_warnings,
     get_general_reference_entries,
     get_cached_pdf_text_pages,
     search_pdf_text,
     safe_path_parts,
+    Settings,
     upsert_checklist,
     upsert_checklist_with_metadata,
     upsert_pdf_entry,
@@ -97,10 +100,57 @@ def test_login_page_loads(client):
     assert response.status_code == 200
 
 
+def test_health_page_returns_ok_json(client):
+    response = client.get('/health')
+
+    assert response.status_code == 200
+    assert response.get_json() == {'status': 'ok', 'app': 'EQRF'}
+
+
 def test_admin_redirects_to_login_when_logged_out(client):
     response = client.get('/admin')
     assert response.status_code == 302
     assert '/login' in response.headers['Location']
+
+
+def test_wsgi_exports_application_and_app():
+    module = importlib.import_module('wsgi')
+
+    assert module.application is app_module.app
+    assert module.app is app_module.app
+
+
+def test_app_import_does_not_start_dev_server():
+    assert app_module.app.name == 'app'
+    assert app_module.app.debug is False
+
+
+def test_production_config_defaults_debug_off_and_respects_env(monkeypatch):
+    monkeypatch.delenv('FLASK_DEBUG', raising=False)
+    assert Settings().debug is False
+
+    monkeypatch.setenv('FLASK_DEBUG', '1')
+    assert Settings().debug is True
+
+
+def test_production_safety_warnings_for_default_secrets():
+    warnings = production_safety_warnings(Settings(secret_key='change-me', admin_password='admin'))
+
+    assert any('EQRF_SECRET_KEY' in warning for warning in warnings)
+    assert any('EQRF_PASSWORD' in warning for warning in warnings)
+
+
+def test_admin_health_shows_production_safety_warnings(client, monkeypatch):
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+    client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
+
+    response = client.get('/admin')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'Production safety' in html
+    assert 'EQRF_SECRET_KEY' in html
+    assert 'EQRF_PASSWORD' in html
 
 
 def test_login_works_with_eqrf_password(client, monkeypatch):

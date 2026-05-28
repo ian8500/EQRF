@@ -38,6 +38,7 @@ The app is intended for trusted local network use, not public internet exposure.
 - JSON file storage
 - Vendored PDF.js in `static/pdfjs/`
 - `pypdf` for PDF page counts and text extraction/search cache
+- Gunicorn WSGI runtime for production-style local-network serving
 - pytest
 - Gunicorn for Linux deployment
 - systemd for Linux service management
@@ -46,6 +47,7 @@ The app is intended for trusted local network use, not public internet exposure.
 
 ```text
 app.py                  Main Flask application, routes, helpers, admin workflows.
+wsgi.py                 Production WSGI entry point for Gunicorn.
 data/                   Local JSON storage for extracts, checklists, audit log, and generated caches.
 pdfs/                   Source PDF files served to the PDF.js viewer.
 static/                 CSS, JavaScript, vendored PDF.js, images, and legacy JPG assets.
@@ -53,8 +55,8 @@ static/pdfjs/           Local PDF.js runtime files.
 static/jpgs/            Legacy generated JPG pages. Not used by the current public PDF viewer.
 templates/              Jinja templates for public UI, PDF viewer, login, and Admin.
 tests/                  pytest test suite.
-scripts/                Optional helper scripts if added in future.
-deploy/                 Optional deployment files if added in future.
+scripts/                Local helper scripts, including production-style Gunicorn startup.
+deploy/                 Deployment examples, including systemd service template.
 docs/                   Project maintenance documentation.
 requirements.txt        Python dependencies.
 README.md               Project overview, setup, deployment, and maintenance guide.
@@ -62,9 +64,9 @@ AGENTS.md               Repository working instructions for future Codex runs.
 CHANGELOG.md            Human-readable change history.
 ```
 
-Some folders such as `scripts/` and `deploy/` may not exist yet. They are reserved for future operational tooling and deployment assets.
-
 ## Local Mac Development
+
+The Flask development server is useful for local development only. It is not the recommended operational run method.
 
 ```bash
 cd ~/Desktop
@@ -76,7 +78,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-By default, the app listens on port `8000`.
+By default, `python app.py` listens on port `8000` and uses `FLASK_DEBUG=0` unless debug is explicitly enabled.
 
 Useful environment variables:
 
@@ -84,8 +86,11 @@ Useful environment variables:
 export EQRF_SECRET_KEY="change-this-to-a-long-random-value"
 export EQRF_PASSWORD="change-this-admin-password"
 export FLASK_DEBUG=1
+export FLASK_RUN_HOST=0.0.0.0
 export FLASK_RUN_PORT=8000
 ```
+
+`.env.example` is included as a reference for the required values. The app reads environment variables supplied by the shell, launch script, or systemd.
 
 For normal development:
 
@@ -93,6 +98,57 @@ For normal development:
 source venv/bin/activate
 python -m pytest
 python app.py
+```
+
+## Production-Style Local Run
+
+The proper local-network runtime is Gunicorn through `wsgi.py`.
+
+Manual command:
+
+```bash
+source venv/bin/activate
+gunicorn -w 2 -b 0.0.0.0:8000 wsgi:application
+```
+
+Both WSGI names are supported:
+
+```bash
+gunicorn wsgi:application
+gunicorn wsgi:app
+```
+
+Mac/Linux helper script:
+
+```bash
+./scripts/run_production.sh
+```
+
+This starts the app at:
+
+```text
+http://127.0.0.1:8000
+```
+
+and on the local network at:
+
+```text
+http://SERVER-IP:8000
+```
+
+Health check:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Expected response:
+
+```json
+{
+  "status": "ok",
+  "app": "EQRF"
+}
 ```
 
 ## Testing on iPad from Mac
@@ -104,11 +160,11 @@ python app.py
 ipconfig getifaddr en0
 ```
 
-3. Start EQRF:
+3. Start EQRF with the production-style script:
 
 ```bash
 source venv/bin/activate
-python app.py
+./scripts/run_production.sh
 ```
 
 4. Open the app on the iPad:
@@ -123,7 +179,7 @@ Example:
 http://192.168.0.20:8000
 ```
 
-The Flask app is configured to listen on `0.0.0.0` by default, so other local-network devices can reach it if the Mac firewall allows incoming connections.
+The production-style script binds to `0.0.0.0` by default, so other local-network devices can reach it if the Mac firewall allows incoming connections.
 
 ## Linux / Micro Computer Deployment
 
@@ -153,34 +209,54 @@ pip install -r requirements.txt
 Install Gunicorn if it is not already installed in the environment:
 
 ```bash
-pip install gunicorn
+pip install -r requirements.txt
 ```
 
 Run manually:
 
 ```bash
 EQRF_SECRET_KEY="change-this" EQRF_PASSWORD="change-this" \
-venv/bin/gunicorn -w 2 -b 0.0.0.0:8000 app:app
+venv/bin/gunicorn -w 2 -b 0.0.0.0:8000 wsgi:application
 ```
 
-Example systemd service:
+An example service file is included at:
+
+```text
+deploy/eqrf.service.example
+```
+
+Copy it into place and edit the environment values:
+
+```bash
+sudo cp deploy/eqrf.service.example /etc/systemd/system/eqrf.service
+sudo nano /etc/systemd/system/eqrf.service
+```
+
+The service runs:
+
+```text
+/opt/EQRF/venv/bin/gunicorn -w 2 -b 0.0.0.0:8000 wsgi:application
+```
+
+Example systemd service contents:
 
 ```ini
 [Unit]
-Description=Glasgow E-QRF
+Description=EQRF local network application
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-WorkingDirectory=/opt/EQRF
-Environment=EQRF_SECRET_KEY=change-this-to-a-long-random-value
-Environment=EQRF_PASSWORD=change-this-admin-password
-Environment=FLASK_RUN_PORT=8000
-ExecStart=/opt/EQRF/venv/bin/gunicorn -w 2 -b 0.0.0.0:8000 app:app
-Restart=always
-RestartSec=3
 User=eqrf
 Group=eqrf
+WorkingDirectory=/opt/EQRF
+Environment="EQRF_SECRET_KEY=change-this"
+Environment="EQRF_PASSWORD=change-this"
+Environment="FLASK_DEBUG=0"
+Environment="FLASK_RUN_PORT=8000"
+ExecStart=/opt/EQRF/venv/bin/gunicorn -w 2 -b 0.0.0.0:8000 wsgi:application
+Restart=always
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
@@ -431,6 +507,7 @@ Important notes:
 - Do not expose the app directly to the public internet.
 - Change the default admin password with `EQRF_PASSWORD`.
 - Set a strong `EQRF_SECRET_KEY`.
+- Admin health warnings are shown if `EQRF_SECRET_KEY` or `EQRF_PASSWORD` are still default placeholder values.
 - Keep the server operating system patched.
 - Restrict access to the server and repository files.
 - Back up `data/`, `pdfs/`, and any legacy assets regularly.
@@ -505,4 +582,3 @@ Possible future improvements:
 - Version archive and rollback tools.
 - Improved PDF navigation and document outline support.
 - Local HTTPS if operationally required.
-

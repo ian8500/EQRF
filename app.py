@@ -3,7 +3,7 @@ import json
 import re
 import tempfile
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache, wraps
 from pathlib import Path
@@ -42,11 +42,11 @@ JPG_DIR.mkdir(parents=True, exist_ok=True)
 class Settings:
     """Runtime configuration sourced from environment variables."""
 
-    secret_key: str = os.environ.get('EQRF_SECRET_KEY') or os.environ.get('SECRET_KEY', 'change-me')
-    admin_password: str = os.environ.get('EQRF_PASSWORD', 'admin')
-    debug: bool = os.environ.get('FLASK_DEBUG', '0') in {'1', 'true', 'True'}
-    host: str = os.environ.get('FLASK_RUN_HOST', '0.0.0.0')
-    port: int = int(os.environ.get('FLASK_RUN_PORT', os.environ.get('PORT', '8000')))
+    secret_key: str = field(default_factory=lambda: os.environ.get('EQRF_SECRET_KEY') or os.environ.get('SECRET_KEY', 'change-me'))
+    admin_password: str = field(default_factory=lambda: os.environ.get('EQRF_PASSWORD', 'admin'))
+    debug: bool = field(default_factory=lambda: os.environ.get('FLASK_DEBUG', '0') in {'1', 'true', 'True'})
+    host: str = field(default_factory=lambda: os.environ.get('FLASK_RUN_HOST', '0.0.0.0'))
+    port: int = field(default_factory=lambda: int(os.environ.get('FLASK_RUN_PORT', os.environ.get('PORT', '8000'))))
 
 
 SETTINGS = Settings()
@@ -87,6 +87,18 @@ EXTRACTS_JSON = DATA_DIR / 'extracts.json'
 CHECKLISTS_JSON = DATA_DIR / 'checklists.json'
 AUDIT_LOG_JSON = DATA_DIR / 'audit_log.json'
 PDF_TEXT_CACHE_JSON = DATA_DIR / 'pdf_text_cache.json'
+
+UNSAFE_SECRET_VALUES = {'', 'change-me', 'change-this'}
+UNSAFE_PASSWORD_VALUES = {'', 'admin', 'change-this'}
+
+
+def production_safety_warnings(settings: Settings = SETTINGS) -> List[str]:
+    warnings: List[str] = []
+    if str(settings.secret_key or '').strip() in UNSAFE_SECRET_VALUES:
+        warnings.append('EQRF_SECRET_KEY is not set to a production-safe value.')
+    if str(settings.admin_password or '').strip() in UNSAFE_PASSWORD_VALUES:
+        warnings.append('EQRF_PASSWORD is not set to a production-safe value.')
+    return warnings
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -1441,6 +1453,7 @@ def _admin_context() -> Dict[str, Any]:
             'empty_checklists': empty_checklists,
             'duplicate_pdfs': duplicate_pdfs,
             'json_status': _json_status(),
+            'production_warnings': production_safety_warnings(),
         },
     }
 
@@ -1768,6 +1781,12 @@ def home():
         extract_count=extract_count,
         quick_ref_count=len(general_reference_pdfs),
     )
+
+
+@app.route('/health')
+def health():
+    return jsonify({'status': 'ok', 'app': 'EQRF'})
+
 
 # ---------------------- Checklists ---------------------- #
 
@@ -2485,4 +2504,7 @@ def admin_checklist_preview():
 # ---------------------- Main ---------------------- #
 
 if __name__ == '__main__':
+    for warning in production_safety_warnings():
+        print(f'WARNING: {warning}')
+    print('WARNING: python app.py starts the Flask development server. Use Gunicorn with wsgi:application for operational local-network use.')
     app.run(debug=SETTINGS.debug, host=SETTINGS.host, port=SETTINGS.port)

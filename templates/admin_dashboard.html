@@ -256,6 +256,18 @@
       <summary>Warnings and checks</summary>
       <div class="health-grid compact-health">
         <div>
+          <h4>Production safety</h4>
+          {% if health.production_warnings %}
+            <ul class="health-list">
+              {% for warning in health.production_warnings %}
+                <li>{{ warning }}</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="status-chip ok">OK</p>
+          {% endif %}
+        </div>
+        <div>
           <h4>Missing source PDFs</h4>
           {% if health.missing_pdfs %}
             <ul class="health-list">
