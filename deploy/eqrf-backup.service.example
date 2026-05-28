@@ -1,0 +1,10 @@
+[Unit]
+Description=Back up EQRF local content
+
+[Service]
+Type=oneshot
+User=eqrf
+Group=eqrf
+WorkingDirectory=/opt/EQRF
+EnvironmentFile=/opt/EQRF/.env
+ExecStart=/opt/EQRF/scripts/backup_eqrf.sh

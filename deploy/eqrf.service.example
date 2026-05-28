@@ -7,13 +7,19 @@ Wants=network-online.target
 User=eqrf
 Group=eqrf
 WorkingDirectory=/opt/EQRF
-Environment="EQRF_SECRET_KEY=change-this"
-Environment="EQRF_PASSWORD=change-this"
-Environment="FLASK_DEBUG=0"
-Environment="FLASK_RUN_PORT=8000"
+EnvironmentFile=/opt/EQRF/.env
 ExecStart=/opt/EQRF/venv/bin/gunicorn -w 2 -b 0.0.0.0:8000 wsgi:application
 Restart=always
 RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/EQRF/data /opt/EQRF/pdfs /opt/EQRF/static /opt/EQRF/backups
+LimitNOFILE=4096
 
 [Install]
 WantedBy=multi-user.target

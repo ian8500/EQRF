@@ -23,6 +23,7 @@ from flask import (
     Response,
     jsonify,
 )
+from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.utils import secure_filename
 
 # ---------------------- Paths & Env ---------------------- #
@@ -47,12 +48,14 @@ class Settings:
     debug: bool = field(default_factory=lambda: os.environ.get('FLASK_DEBUG', '0') in {'1', 'true', 'True'})
     host: str = field(default_factory=lambda: os.environ.get('FLASK_RUN_HOST', '0.0.0.0'))
     port: int = field(default_factory=lambda: int(os.environ.get('FLASK_RUN_PORT', os.environ.get('PORT', '8000'))))
+    max_upload_mb: int = field(default_factory=lambda: int(os.environ.get('EQRF_MAX_UPLOAD_MB', '100')))
 
 
 SETTINGS = Settings()
 
 app = Flask(__name__)
 app.secret_key = SETTINGS.secret_key
+app.config['MAX_CONTENT_LENGTH'] = SETTINGS.max_upload_mb * 1024 * 1024
 
 # Strong client caching for static assets and locally served PDFs.
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = timedelta(days=365)
@@ -88,15 +91,17 @@ CHECKLISTS_JSON = DATA_DIR / 'checklists.json'
 AUDIT_LOG_JSON = DATA_DIR / 'audit_log.json'
 PDF_TEXT_CACHE_JSON = DATA_DIR / 'pdf_text_cache.json'
 
-UNSAFE_SECRET_VALUES = {'', 'change-me', 'change-this'}
-UNSAFE_PASSWORD_VALUES = {'', 'admin', 'change-this'}
+UNSAFE_SECRET_VALUES = {'', 'change-me', 'change-this', 'change-this-to-a-long-random-string'}
+UNSAFE_PASSWORD_VALUES = {'', 'admin', 'change-this', 'change-this-admin-password'}
 
 
 def production_safety_warnings(settings: Settings = SETTINGS) -> List[str]:
     warnings: List[str] = []
-    if str(settings.secret_key or '').strip() in UNSAFE_SECRET_VALUES:
+    secret = str(settings.secret_key or '').strip()
+    password = str(settings.admin_password or '').strip()
+    if secret in UNSAFE_SECRET_VALUES:
         warnings.append('EQRF_SECRET_KEY is not set to a production-safe value.')
-    if str(settings.admin_password or '').strip() in UNSAFE_PASSWORD_VALUES:
+    if password in UNSAFE_PASSWORD_VALUES:
         warnings.append('EQRF_PASSWORD is not set to a production-safe value.')
     return warnings
 
@@ -1687,6 +1692,39 @@ def _unavailable(title: str, message: str, back_label: str, back_endpoint: str, 
     ), status
 
 
+@app.errorhandler(404)
+def handle_not_found(_error):
+    return render_template(
+        'unavailable.html',
+        title='Page unavailable',
+        message='The requested EQRF page is not available.',
+        back_label='Home',
+        back_url=url_for('home'),
+    ), 404
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_file_too_large(_error):
+    return render_template(
+        'unavailable.html',
+        title='Upload too large',
+        message=f'The uploaded file exceeds the {SETTINGS.max_upload_mb} MB EQRF upload limit.',
+        back_label='Back to Admin',
+        back_url=url_for('admin_panel') if is_admin() else url_for('login'),
+    ), 413
+
+
+@app.errorhandler(500)
+def handle_server_error(_error):
+    return render_template(
+        'unavailable.html',
+        title='Server error',
+        message='EQRF could not complete that request.',
+        back_label='Home',
+        back_url=url_for('home'),
+    ), 500
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     next_target = request.args.get('next', '')
@@ -1785,7 +1823,11 @@ def home():
 
 @app.route('/health')
 def health():
-    return jsonify({'status': 'ok', 'app': 'EQRF'})
+    return jsonify({
+        'status': 'ok',
+        'app': 'EQRF',
+        'mode': 'development' if SETTINGS.debug else 'production',
+    })
 
 
 # ---------------------- Checklists ---------------------- #

@@ -104,13 +104,62 @@ def test_health_page_returns_ok_json(client):
     response = client.get('/health')
 
     assert response.status_code == 200
-    assert response.get_json() == {'status': 'ok', 'app': 'EQRF'}
+    assert response.get_json() == {'status': 'ok', 'app': 'EQRF', 'mode': 'production'}
 
 
 def test_admin_redirects_to_login_when_logged_out(client):
     response = client.get('/admin')
     assert response.status_code == 302
     assert '/login' in response.headers['Location']
+
+
+def test_production_runtime_files_exist():
+    base = app_module.BASE_DIR
+
+    assert (base / 'wsgi.py').exists()
+    assert (base / 'scripts' / 'run_production.sh').exists()
+    assert (base / 'scripts' / 'check_health.sh').exists()
+    assert (base / 'scripts' / 'backup_eqrf.sh').exists()
+    assert (base / 'deploy' / 'eqrf.service.example').exists()
+    assert (base / 'deploy' / 'eqrf-healthcheck.service.example').exists()
+    assert (base / 'deploy' / 'eqrf-backup.timer.example').exists()
+
+
+def test_systemd_service_uses_managed_hardened_runtime():
+    service = (app_module.BASE_DIR / 'deploy' / 'eqrf.service.example').read_text(encoding='utf-8')
+
+    assert 'EnvironmentFile=/opt/EQRF/.env' in service
+    assert 'ExecStart=/opt/EQRF/venv/bin/gunicorn -w 2 -b 0.0.0.0:8000 wsgi:application' in service
+    assert 'Restart=always' in service
+    assert 'NoNewPrivileges=true' in service
+    assert 'ReadWritePaths=/opt/EQRF/data /opt/EQRF/pdfs /opt/EQRF/static /opt/EQRF/backups' in service
+
+
+def test_max_content_length_is_configured():
+    assert app.config['MAX_CONTENT_LENGTH'] == Settings().max_upload_mb * 1024 * 1024
+
+
+def test_friendly_404_page(client):
+    response = client.get('/definitely-not-an-eqrf-route')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 404
+    assert 'Page unavailable' in html
+
+
+def test_friendly_413_page(client):
+    with app.test_request_context('/admin/upload_pdf', method='POST'):
+        response, status = app_module.handle_file_too_large(None)
+
+    assert status == 413
+    assert 'Upload too large' in response
+
+
+def test_no_route_exposes_server_shutdown():
+    route_text = '\n'.join(f'{rule.rule} {rule.endpoint}' for rule in app.url_map.iter_rules()).lower()
+
+    assert 'shutdown' not in route_text
+    assert 'stop' not in route_text
 
 
 def test_wsgi_exports_application_and_app():
@@ -239,6 +288,17 @@ def test_admin_edit_pages_require_login(client):
 
     assert extract_response.status_code == 302
     assert checklist_response.status_code == 302
+
+
+def test_upload_and_delete_routes_require_login(client):
+    upload_response = client.post('/admin/upload_pdf')
+    delete_pdf_response = client.post('/admin/delete_pdf')
+    delete_category_response = client.post('/admin/delete_category')
+    delete_checklist_response = client.post('/admin/checklists/delete')
+
+    for response in [upload_response, delete_pdf_response, delete_category_response, delete_checklist_response]:
+        assert response.status_code == 302
+        assert '/login' in response.headers['Location']
 
 
 def test_admin_upload_includes_general_reference_option(client, monkeypatch):

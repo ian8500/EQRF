@@ -26,6 +26,7 @@ The app is intended for trusted local network use, not public internet exposure.
 - **Admin panel**: upload PDFs, edit extract metadata, create/edit/delete checklists, view health warnings, view audit log, and trigger client refresh.
 - **Audit log**: append-only JSON audit trail viewable from Admin.
 - **Governance metadata**: version, effective date, expiry date, review date, owner, status, and last updated values for extracts and checklists.
+- **Production service runtime**: Gunicorn WSGI entry point, systemd service example, health check, backup scripts, and restart-after-crash service model.
 - **Day/night mode**: localStorage-backed UI theme toggle across pages.
 - **Local network use**: runs on a Mac, Raspberry Pi, mini PC, or other local server for iPads and desktops on the same network.
 - **Client refresh behaviour**: Admin can trigger connected clients to refresh. Clients try to stay on the same page, or fall back to the nearest valid parent route.
@@ -55,8 +56,8 @@ static/pdfjs/           Local PDF.js runtime files.
 static/jpgs/            Legacy generated JPG pages. Not used by the current public PDF viewer.
 templates/              Jinja templates for public UI, PDF viewer, login, and Admin.
 tests/                  pytest test suite.
-scripts/                Local helper scripts, including production-style Gunicorn startup.
-deploy/                 Deployment examples, including systemd service template.
+scripts/                Local helper scripts for Gunicorn startup, service install, health checks, and backups.
+deploy/                 Deployment examples, including systemd service, health timer, and backup timer templates.
 docs/                   Project maintenance documentation.
 requirements.txt        Python dependencies.
 README.md               Project overview, setup, deployment, and maintenance guide.
@@ -88,6 +89,9 @@ export EQRF_PASSWORD="change-this-admin-password"
 export FLASK_DEBUG=1
 export FLASK_RUN_HOST=0.0.0.0
 export FLASK_RUN_PORT=8000
+export GUNICORN_WORKERS=2
+export EQRF_BACKUP_DIR=backups
+export EQRF_MAX_UPLOAD_MB=100
 ```
 
 `.env.example` is included as a reference for the required values. The app reads environment variables supplied by the shell, launch script, or systemd.
@@ -147,7 +151,8 @@ Expected response:
 ```json
 {
   "status": "ok",
-  "app": "EQRF"
+  "app": "EQRF",
+  "mode": "production"
 }
 ```
 
@@ -193,6 +198,8 @@ Recommended deployment shape:
 - Use Gunicorn as the process runner.
 - Use systemd to keep the app running after reboot.
 
+EQRF should not be run in an open terminal for operational use. If a terminal window is closed, a foreground process stops. systemd runs EQRF as a managed service, restarts it if it crashes, and starts it again after a reboot.
+
 Example setup:
 
 ```bash
@@ -219,13 +226,22 @@ EQRF_SECRET_KEY="change-this" EQRF_PASSWORD="change-this" \
 venv/bin/gunicorn -w 2 -b 0.0.0.0:8000 wsgi:application
 ```
 
+Create the production environment file:
+
+```bash
+cp .env.example .env
+nano .env
+```
+
+For production, edit at least `EQRF_SECRET_KEY` and `EQRF_PASSWORD`. `/opt/EQRF/.env` is read by the systemd service.
+
 An example service file is included at:
 
 ```text
 deploy/eqrf.service.example
 ```
 
-Copy it into place and edit the environment values:
+Copy it into place after reviewing the paths and service user:
 
 ```bash
 sudo cp deploy/eqrf.service.example /etc/systemd/system/eqrf.service
@@ -250,13 +266,19 @@ Wants=network-online.target
 User=eqrf
 Group=eqrf
 WorkingDirectory=/opt/EQRF
-Environment="EQRF_SECRET_KEY=change-this"
-Environment="EQRF_PASSWORD=change-this"
-Environment="FLASK_DEBUG=0"
-Environment="FLASK_RUN_PORT=8000"
+EnvironmentFile=/opt/EQRF/.env
 ExecStart=/opt/EQRF/venv/bin/gunicorn -w 2 -b 0.0.0.0:8000 wsgi:application
 Restart=always
 RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/EQRF/data /opt/EQRF/pdfs /opt/EQRF/static /opt/EQRF/backups
+LimitNOFILE=4096
 
 [Install]
 WantedBy=multi-user.target
@@ -271,11 +293,42 @@ sudo systemctl start eqrf
 sudo systemctl status eqrf
 ```
 
+Useful service commands:
+
+```bash
+sudo systemctl status eqrf
+sudo systemctl restart eqrf
+sudo systemctl stop eqrf
+sudo systemctl enable eqrf
+journalctl -u eqrf -f
+```
+
+The helper script can install/update the service after confirmation:
+
+```bash
+./scripts/install_linux_service.sh
+```
+
 iPads then open:
 
 ```text
 http://SERVER-IP:8000
 ```
+
+Health check:
+
+```bash
+./scripts/check_health.sh
+```
+
+Optional health-check timer examples are included at:
+
+```text
+deploy/eqrf-healthcheck.service.example
+deploy/eqrf-healthcheck.timer.example
+```
+
+They can be copied into `/etc/systemd/system/` if you want systemd to call `/health` periodically and restart the `eqrf` service when unhealthy.
 
 ## Admin Panel Guide
 
@@ -512,6 +565,9 @@ Important notes:
 - Restrict access to the server and repository files.
 - Back up `data/`, `pdfs/`, and any legacy assets regularly.
 - Use local HTTPS only if your deployment requires it and you understand certificate management for the local network.
+- Admin, upload, delete, metadata edit, trigger refresh, and audit routes require login.
+- Destructive operations are POST-only and login-protected. A lightweight CSRF token layer is still a future hardening item.
+- Uploads are capped by `EQRF_MAX_UPLOAD_MB`, defaulting to 100 MB.
 
 ## Backup
 
@@ -524,8 +580,28 @@ Back up at least:
 Example backup command:
 
 ```bash
-mkdir -p backups
-tar -czf backups/eqrf-backup-$(date +%Y%m%d-%H%M%S).tar.gz data pdfs static/jpgs
+./scripts/backup_eqrf.sh
+```
+
+Backups are written to `EQRF_BACKUP_DIR`, defaulting to `backups/`.
+
+Backup names look like:
+
+```text
+backups/eqrf-backup-20260527-235900.tar.gz
+```
+
+The backup script keeps the latest 20 archives by default. Override with:
+
+```bash
+EQRF_BACKUP_KEEP=40 ./scripts/backup_eqrf.sh
+```
+
+Optional daily systemd backup examples:
+
+```text
+deploy/eqrf-backup.service.example
+deploy/eqrf-backup.timer.example
 ```
 
 Store backups away from the EQRF server as well as locally.

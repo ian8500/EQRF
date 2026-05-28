@@ -1,0 +1,10 @@
+[Unit]
+Description=Run EQRF backup daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+Unit=eqrf-backup.service
+
+[Install]
+WantedBy=timers.target

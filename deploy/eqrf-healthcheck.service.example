@@ -1,0 +1,7 @@
+[Unit]
+Description=EQRF health check
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/EQRF
+ExecStart=/bin/bash -lc '/opt/EQRF/scripts/check_health.sh || systemctl restart eqrf'
