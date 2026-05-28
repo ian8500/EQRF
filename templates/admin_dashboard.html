@@ -27,6 +27,7 @@
     <details class="admin-details" open>
       <summary>Upload new extract</summary>
       <form class="form-stack compact-form" action="{{ url_for('upload_pdf') }}" method="post" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-grid">
           <label for="existing_category">
             Existing category
@@ -115,6 +116,7 @@
                 <span class="tile-meta">{{ category.file_count }} file{{ '' if category.file_count == 1 else 's' }}</span>
               </div>
               <form action="{{ url_for('delete_category') }}" method="post" onsubmit="return confirm('Delete category {{ category.path }} and its registered PDF entries?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="category" value="{{ category.path }}">
                 <button class="btn danger" type="submit">Delete category</button>
               </form>
@@ -151,11 +153,13 @@
                       {% endif %}
                       <a class="btn" href="{{ url_for('admin_extract_edit', category=category.path, filename=file.filename) }}">Edit metadata</a>
                       <form action="{{ url_for('regenerate_pdf') }}" method="post">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="category" value="{{ category.path }}">
                         <input type="hidden" name="filename" value="{{ file.filename }}">
                         <button class="btn" type="submit">Refresh metadata</button>
                       </form>
                       <form action="{{ url_for('delete_pdf') }}" method="post" onsubmit="return confirm('Delete {{ file.filename }} from {{ category.path }}?');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="category" value="{{ category.path }}">
                         <input type="hidden" name="filename" value="{{ file.filename }}">
                         <button class="btn danger" type="submit">Delete PDF</button>
@@ -207,6 +211,7 @@
               {% endif %}
               <a class="btn" href="{{ url_for('admin_checklist_edit', path=checklist.path) }}">Edit</a>
               <form action="{{ url_for('admin_checklist_delete') }}" method="post" onsubmit="return confirm('Delete checklist {{ checklist.path }}?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="path" value="{{ checklist.path }}">
                 <button class="btn danger" type="submit">Delete</button>
               </form>
@@ -248,6 +253,7 @@
         <h3>Content integrity</h3>
       </div>
       <form action="{{ url_for('trigger_refresh') }}" method="post" onsubmit="return confirm('Refresh all connected EQRF clients?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn" type="submit">Trigger Client Refresh</button>
       </form>
     </div>

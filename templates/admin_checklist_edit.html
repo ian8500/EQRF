@@ -14,6 +14,7 @@
   <div class="editor-grid">
     <section class="card">
       <form id="checklist-editor-form" class="form-stack" method="post" action="{{ url_for('admin_checklist_new') if mode == 'new' else url_for('admin_checklist_edit') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="original_path" value="{{ original_path or path }}">
 
         <label for="path">
@@ -75,6 +76,7 @@
 
       {% if mode != 'new' %}
         <form class="delete-panel" action="{{ url_for('admin_checklist_delete') }}" method="post" onsubmit="return confirm('Delete checklist {{ original_path or path }}?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="path" value="{{ original_path or path }}">
           <button class="btn danger" type="submit">Delete</button>
         </form>

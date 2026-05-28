@@ -111,7 +111,8 @@ python app.py
 EQRF uses environment variables for local secrets. Do not hardcode or commit real secrets.
 
 - `EQRF_SECRET_KEY`: Flask session signing key. This protects Admin login cookies from tampering.
-- `EQRF_PASSWORD`: Admin login password.
+- `EQRF_PASSWORD_HASH`: preferred production Admin credential, stored as a Werkzeug password hash.
+- `EQRF_PASSWORD`: development fallback Admin login password when `EQRF_PASSWORD_HASH` is blank.
 - `FLASK_DEBUG`: set `1` only for development debugging. Use `0` for production-style service use.
 - `.env`: local untracked environment file for Mac testing or `/opt/EQRF/.env` on Linux.
 - `.env.example`: committed template with placeholders only.
@@ -120,6 +121,16 @@ Generate a strong secret key:
 
 ```bash
 python scripts/generate_secret_key.py
+```
+
+Generate an Admin password hash:
+
+```bash
+python - <<'PY'
+from getpass import getpass
+from werkzeug.security import generate_password_hash
+print(generate_password_hash(getpass("Admin password: ")))
+PY
 ```
 
 Mac setup:
@@ -258,7 +269,7 @@ pip install -r requirements.txt
 Run manually:
 
 ```bash
-EQRF_SECRET_KEY="change-this" EQRF_PASSWORD="change-this" \
+EQRF_SECRET_KEY="change-this" EQRF_PASSWORD_HASH="paste-generated-hash-here" \
 venv/bin/gunicorn -w 2 -b 0.0.0.0:8000 wsgi:application
 ```
 
@@ -269,7 +280,7 @@ cp .env.example .env
 nano .env
 ```
 
-For production, edit at least `EQRF_SECRET_KEY` and `EQRF_PASSWORD`. `/opt/EQRF/.env` is read by the systemd service. Generate `EQRF_SECRET_KEY` with:
+For production, edit at least `EQRF_SECRET_KEY` and `EQRF_PASSWORD_HASH`. `/opt/EQRF/.env` is read by the systemd service. Generate `EQRF_SECRET_KEY` with:
 
 ```bash
 python scripts/generate_secret_key.py
@@ -378,7 +389,7 @@ Open the login page from the top navigation:
 /login
 ```
 
-Set the admin password with `EQRF_PASSWORD`. A successful login sets the session as admin and reveals Admin navigation.
+Set the admin password with `EQRF_PASSWORD_HASH` for production-style use. `EQRF_PASSWORD` remains available as a development fallback. A successful login sets the session as admin and reveals Admin navigation.
 
 Admin capabilities:
 
@@ -599,16 +610,17 @@ EQRF is intended for trusted local-network use only.
 Important notes:
 
 - Do not expose the app directly to the public internet.
-- Change the default admin password with `EQRF_PASSWORD`.
+- Set a hashed admin password with `EQRF_PASSWORD_HASH`; use `EQRF_PASSWORD` only as a development fallback.
 - Set a strong `EQRF_SECRET_KEY`.
-- Admin health warnings are shown if `EQRF_SECRET_KEY` or `EQRF_PASSWORD` are missing, short, or known unsafe placeholder values.
+- Admin health warnings are shown if `EQRF_SECRET_KEY`, `EQRF_PASSWORD_HASH`, or fallback `EQRF_PASSWORD` values are missing, short, invalid, or known unsafe placeholders.
 - Never commit `.env` to GitHub.
 - Keep the server operating system patched.
 - Restrict access to the server and repository files.
 - Back up `data/`, `pdfs/`, and any legacy assets regularly.
 - Use local HTTPS only if your deployment requires it and you understand certificate management for the local network.
 - Admin, upload, delete, metadata edit, trigger refresh, and audit routes require login.
-- Destructive operations are POST-only and login-protected. A lightweight CSRF token layer is still a future hardening item.
+- Admin/destructive POST operations require a per-session CSRF token and are audit-logged when verification fails.
+- Failed Admin logins are rate-limited per remote address and recorded in the audit log.
 - Uploads are capped by `EQRF_MAX_UPLOAD_MB`, defaulting to 100 MB.
 
 ## Backup

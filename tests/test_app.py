@@ -6,6 +6,7 @@ import sys
 from types import SimpleNamespace
 
 import pytest
+from werkzeug.security import generate_password_hash
 
 import app as app_module
 from app import (
@@ -42,15 +43,22 @@ from app import (
     upsert_checklist_with_metadata,
     upsert_pdf_entry,
     validate_content_metadata,
+    verify_admin_password,
 )
 
 
 @pytest.fixture()
 def client(monkeypatch, tmp_path):
     monkeypatch.setattr(app_module, 'AUDIT_LOG_JSON', tmp_path / 'audit_log.json')
+    app_module.login_attempts.clear()
     app.config.update(TESTING=True)
     with app.test_client() as test_client:
         yield test_client
+
+
+def csrf_for(client):
+    with client.session_transaction() as sess:
+        return sess.get('csrf_token')
 
 
 @pytest.fixture()
@@ -151,6 +159,13 @@ def test_max_content_length_is_configured():
     assert app.config['MAX_CONTENT_LENGTH'] == Settings().max_upload_mb * 1024 * 1024
 
 
+def test_session_cookie_security_defaults_are_configured():
+    assert app.config['SESSION_COOKIE_HTTPONLY'] is True
+    assert app.config['SESSION_COOKIE_SAMESITE'] == 'Lax'
+    assert app.config['SESSION_COOKIE_SECURE'] is False
+    assert app.config['PERMANENT_SESSION_LIFETIME'].total_seconds() == 8 * 60 * 60
+
+
 def test_friendly_404_page(client):
     response = client.get('/definitely-not-an-eqrf-route')
     html = response.get_data(as_text=True)
@@ -218,6 +233,25 @@ def test_admin_password_safety_detects_unsafe_values():
         assert any('EQRF_PASSWORD' in warning for warning in warnings)
 
 
+def test_password_hash_safety_and_verification(monkeypatch):
+    password_hash = generate_password_hash('better-admin-password')
+
+    warnings = production_safety_warnings(Settings(secret_key='a' * 64, admin_password='admin', admin_password_hash=password_hash))
+    assert not any('EQRF_PASSWORD is not set' in warning for warning in warnings)
+    assert not any('EQRF_PASSWORD_HASH' in warning for warning in warnings)
+
+    monkeypatch.setenv('EQRF_PASSWORD_HASH', password_hash)
+    monkeypatch.setenv('EQRF_PASSWORD', 'wrong-fallback')
+    assert verify_admin_password('better-admin-password') is True
+    assert verify_admin_password('wrong-fallback') is False
+
+
+def test_password_hash_warning_detects_invalid_hash():
+    warnings = production_safety_warnings(Settings(secret_key='a' * 64, admin_password_hash='change-this'))
+
+    assert any('EQRF_PASSWORD_HASH' in warning for warning in warnings)
+
+
 def test_admin_health_shows_production_safety_warnings(client, monkeypatch):
     monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
     client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
@@ -267,6 +301,7 @@ def test_env_example_documents_required_runtime_values():
 
     for key in [
         'EQRF_SECRET_KEY=change-this-to-a-long-random-string',
+        'EQRF_PASSWORD_HASH=',
         'EQRF_PASSWORD=change-this-admin-password',
         'FLASK_DEBUG=0',
         'FLASK_RUN_HOST=0.0.0.0',
@@ -296,9 +331,36 @@ def test_login_works_with_eqrf_password(client, monkeypatch):
     with client.session_transaction() as session:
         assert session['logged_in'] is True
         assert session['is_admin'] is True
+        assert session['csrf_token']
     admin_response = client.get('/admin')
     assert admin_response.status_code == 200
     assert b'<h2 class="page-title">Admin</h2>' in admin_response.data
+
+
+def test_login_works_with_eqrf_password_hash(client, monkeypatch):
+    monkeypatch.delenv('EQRF_PASSWORD', raising=False)
+    monkeypatch.setenv('EQRF_PASSWORD_HASH', generate_password_hash('hash-pass'))
+
+    response = client.post('/login', data={'password': 'hash-pass', 'next': '/admin'})
+
+    assert response.status_code == 302
+    assert response.headers['Location'].endswith('/admin')
+    with client.session_transaction() as session:
+        assert session['is_admin'] is True
+
+
+def test_failed_login_is_audited_and_rate_limited(client, monkeypatch):
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+
+    for _ in range(app_module.LOGIN_FAILURE_LIMIT):
+        client.post('/login', data={'password': 'wrong', 'next': '/admin'})
+
+    blocked = client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
+
+    assert blocked.status_code == 429
+    actions = [entry['action'] for entry in get_audit_log()]
+    assert 'admin_login_failed' in actions
+    assert 'admin_login_rate_limited' in actions
 
 
 def test_admin_link_hidden_when_logged_out(client):
@@ -398,6 +460,7 @@ def test_admin_upload_includes_general_reference_option(client, monkeypatch):
 def test_blank_category_upload_stores_as_general_reference(client, isolated_content, monkeypatch):
     monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
     client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
+    csrf = csrf_for(client)
 
     def fake_save(extracts):
         isolated_content.extracts.clear()
@@ -409,6 +472,7 @@ def test_blank_category_upload_stores_as_general_reference(client, isolated_cont
         '/admin/upload_pdf',
         data={
             'file': (io.BytesIO(b'%PDF-1.4\nblank category'), 'General.pdf'),
+            'csrf_token': csrf,
             'existing_category': '',
             'new_category': '',
             'orientation': 'auto',
@@ -457,7 +521,7 @@ def test_admin_trigger_refresh_redirects_to_admin_flashes_and_audits(client, mon
     monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
     client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
 
-    response = client.post('/trigger-refresh', follow_redirects=True)
+    response = client.post('/trigger-refresh', data={'csrf_token': csrf_for(client)}, follow_redirects=True)
     html = response.get_data(as_text=True)
 
     assert response.status_code == 200
@@ -470,10 +534,31 @@ def test_trigger_refresh_json_response_for_api_clients(client, monkeypatch):
     monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
     client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
 
-    response = client.post('/trigger-refresh', headers={'Accept': 'application/json'})
+    response = client.post('/trigger-refresh', headers={'Accept': 'application/json', 'X-CSRFToken': csrf_for(client)})
 
     assert response.status_code == 200
     assert response.get_json() == {'ok': True}
+
+
+def test_admin_post_without_csrf_is_blocked_and_audited(client, monkeypatch):
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+    client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
+
+    response = client.post('/trigger-refresh')
+
+    assert response.status_code == 400
+    assert any(entry['action'] == 'csrf_failure' for entry in get_audit_log())
+
+
+def test_admin_forms_include_csrf_tokens(client, monkeypatch):
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+    client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
+
+    dashboard = client.get('/admin').get_data(as_text=True)
+    checklist_new = client.get('/admin/checklists/new').get_data(as_text=True)
+
+    assert 'name="csrf_token"' in dashboard
+    assert 'name="csrf_token"' in checklist_new
 
 
 def test_normalise_category_path_collapses_and_strips():

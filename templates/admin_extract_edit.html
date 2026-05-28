@@ -14,6 +14,7 @@
 
   <section class="card">
     <form class="form-stack" method="post" action="{{ url_for('admin_extract_edit') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="category" value="{{ category }}">
       <input type="hidden" name="filename" value="{{ filename }}">
       <input type="hidden" name="last_updated" value="{{ item.last_updated }}">

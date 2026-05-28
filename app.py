@@ -2,6 +2,7 @@ import os
 import json
 import re
 import tempfile
+import secrets
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -24,6 +25,7 @@ from flask import (
     jsonify,
 )
 from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 
 try:
@@ -53,10 +55,12 @@ class Settings:
 
     secret_key: str = field(default_factory=lambda: os.environ.get('EQRF_SECRET_KEY') or os.environ.get('SECRET_KEY', 'change-me'))
     admin_password: str = field(default_factory=lambda: os.environ.get('EQRF_PASSWORD', 'admin'))
+    admin_password_hash: str = field(default_factory=lambda: os.environ.get('EQRF_PASSWORD_HASH', ''))
     debug: bool = field(default_factory=lambda: str(os.environ.get('FLASK_DEBUG', '0')).strip().lower() in {'1', 'true'})
     host: str = field(default_factory=lambda: os.environ.get('FLASK_RUN_HOST', '0.0.0.0'))
     port: int = field(default_factory=lambda: int(os.environ.get('FLASK_RUN_PORT', os.environ.get('PORT', '8000'))))
     max_upload_mb: int = field(default_factory=lambda: int(os.environ.get('EQRF_MAX_UPLOAD_MB', '100')))
+    session_cookie_secure: bool = field(default_factory=lambda: str(os.environ.get('EQRF_SESSION_COOKIE_SECURE', '0')).strip().lower() in {'1', 'true'})
 
 
 SETTINGS = Settings()
@@ -65,6 +69,12 @@ app = Flask(__name__)
 app.secret_key = SETTINGS.secret_key
 app.debug = False
 app.config['MAX_CONTENT_LENGTH'] = SETTINGS.max_upload_mb * 1024 * 1024
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=SETTINGS.session_cookie_secure,
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
+)
 
 # Strong client caching for static assets and locally served PDFs.
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = timedelta(days=365)
@@ -87,12 +97,66 @@ def utility_processor():
         enumerate=enumerate,
         file_entry_name=file_entry_name,
         is_critical_checklist_line=is_critical_checklist_line,
+        csrf_token=csrf_token,
     )
+
+
+def csrf_token() -> str:
+    token = session.get('csrf_token')
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session['csrf_token'] = token
+    return token
+
+
+def rotate_csrf_token() -> str:
+    token = secrets.token_urlsafe(32)
+    session['csrf_token'] = token
+    return token
+
+
+def csrf_protected_path(path: str) -> bool:
+    return path.startswith('/admin/') or path in {'/trigger-refresh', '/trigger_refresh'}
+
+
+def csrf_token_is_valid() -> bool:
+    expected = session.get('csrf_token')
+    supplied = request.form.get('csrf_token') or request.headers.get('X-CSRFToken') or request.headers.get('X-CSRF-Token')
+    return bool(expected and supplied and secrets.compare_digest(str(expected), str(supplied)))
+
+
+@app.before_request
+def enforce_admin_csrf():
+    if request.method != 'POST' or not csrf_protected_path(request.path):
+        return None
+    if not is_admin():
+        return None
+    if csrf_token_is_valid():
+        return None
+
+    append_audit_log(
+        'csrf_failure',
+        'security',
+        request.path,
+        'Rejected Admin POST with missing or invalid CSRF token',
+        {'remote_addr': request.remote_addr or 'unknown'},
+    )
+    if request.accept_mimetypes.best == 'application/json' or request.is_json:
+        return jsonify({'error': 'CSRF token missing or invalid.'}), 400
+    return render_template(
+        'unavailable.html',
+        title='Request blocked',
+        message='The Admin request could not be verified. Reload the page and try again.',
+        back_label='Back to Admin',
+        back_url=url_for('admin_panel'),
+    ), 400
 
 # ---------------------- Globals (SSE) ---------------------- #
 active_users = 0
 user_lock = Lock()
 refresh_event = Event()
+login_lock = Lock()
+login_attempts: Dict[str, Dict[str, Any]] = {}
 
 # ---------------------- Helpers: JSON ---------------------- #
 EXTRACTS_JSON = DATA_DIR / 'extracts.json'
@@ -112,16 +176,25 @@ UNSAFE_SECRET_VALUES = {
     'your-strong-secret-key',
 }
 UNSAFE_PASSWORD_VALUES = {'', 'admin', 'change-me', 'change-this', 'change-this-admin-password', 'password'}
+UNSAFE_PASSWORD_HASH_VALUES = {'', 'change-me', 'change-this', 'change-this-admin-password'}
+LOGIN_FAILURE_LIMIT = 5
+LOGIN_LOCKOUT_SECONDS = 300
 
 
 def production_safety_warnings(settings: Settings = SETTINGS) -> List[str]:
     warnings: List[str] = []
     secret = str(settings.secret_key or '').strip()
     password = str(settings.admin_password or '').strip()
+    password_hash = str(settings.admin_password_hash or '').strip()
     if secret.lower() in UNSAFE_SECRET_VALUES or len(secret) < 32:
         warnings.append('EQRF_SECRET_KEY is not set to a production-safe value.')
-    if password.lower() in UNSAFE_PASSWORD_VALUES or len(password) < 8:
-        warnings.append('EQRF_PASSWORD is not set to a production-safe value.')
+    if password_hash:
+        if password_hash.lower() in UNSAFE_PASSWORD_HASH_VALUES or not re.match(r'^(scrypt|pbkdf2|argon2):', password_hash):
+            warnings.append('EQRF_PASSWORD_HASH is not set to a valid Werkzeug password hash.')
+    else:
+        warnings.append('EQRF_PASSWORD_HASH is not set; EQRF_PASSWORD fallback is enabled.')
+        if password.lower() in UNSAFE_PASSWORD_VALUES or len(password) < 8:
+            warnings.append('EQRF_PASSWORD is not set to a production-safe value.')
     if settings.debug:
         warnings.append('FLASK_DEBUG=1 is enabled. Use FLASK_DEBUG=0 for production-style local-network service.')
     return warnings
@@ -1513,6 +1586,59 @@ def is_admin():
     return bool(session.get('is_admin'))
 
 
+def _current_admin_password_hash() -> str:
+    return str(os.environ.get('EQRF_PASSWORD_HASH') or Settings().admin_password_hash or '').strip()
+
+
+def _current_admin_password() -> str:
+    return str(os.environ.get('EQRF_PASSWORD') or Settings().admin_password or '').strip()
+
+
+def verify_admin_password(password: str) -> bool:
+    password_hash = _current_admin_password_hash()
+    if password_hash:
+        try:
+            return check_password_hash(password_hash, password)
+        except ValueError:
+            return False
+    return secrets.compare_digest(str(password or ''), _current_admin_password())
+
+
+def _login_key() -> str:
+    return request.headers.get('X-Forwarded-For', request.remote_addr or 'unknown').split(',')[0].strip() or 'unknown'
+
+
+def login_is_rate_limited(key: Optional[str] = None) -> bool:
+    key = key or _login_key()
+    now = datetime.now(timezone.utc)
+    with login_lock:
+        entry = login_attempts.get(key)
+        if not entry:
+            return False
+        locked_until = entry.get('locked_until')
+        if isinstance(locked_until, datetime) and locked_until > now:
+            return True
+        if isinstance(locked_until, datetime) and locked_until <= now:
+            login_attempts.pop(key, None)
+    return False
+
+
+def record_failed_login(key: Optional[str] = None) -> None:
+    key = key or _login_key()
+    now = datetime.now(timezone.utc)
+    with login_lock:
+        entry = login_attempts.setdefault(key, {'count': 0, 'locked_until': None})
+        entry['count'] = int(entry.get('count') or 0) + 1
+        if entry['count'] >= LOGIN_FAILURE_LIMIT:
+            entry['locked_until'] = now + timedelta(seconds=LOGIN_LOCKOUT_SECONDS)
+
+
+def clear_failed_logins(key: Optional[str] = None) -> None:
+    key = key or _login_key()
+    with login_lock:
+        login_attempts.pop(key, None)
+
+
 def _safe_redirect_target(target: Optional[str]) -> str:
     """Prevent open redirects by only allowing intra-site destinations."""
 
@@ -1770,15 +1896,37 @@ def handle_server_error(_error):
 def login():
     next_target = request.args.get('next', '')
     if request.method == 'POST':
+        if login_is_rate_limited():
+            append_audit_log(
+                'admin_login_rate_limited',
+                'auth',
+                'admin',
+                'Admin login blocked by failed-login rate limit',
+                {'remote_addr': request.remote_addr or 'unknown'},
+            )
+            flash('Too many failed login attempts. Try again later.', 'error')
+            return render_template('login.html', next=request.form.get('next', next_target)), 429
+
         password = request.form.get('password', '')
-        expected = os.environ.get('EQRF_PASSWORD', SETTINGS.admin_password)
-        if password == expected:
+        if verify_admin_password(password):
+            session.clear()
+            session.permanent = True
             session['logged_in'] = True
             session['is_admin'] = True
+            rotate_csrf_token()
+            clear_failed_logins()
             append_audit_log('admin_login_success', 'auth', 'admin', 'Admin login successful')
             flash('Logged in.', 'success')
             next_url = _safe_redirect_target(request.form.get('next'))
             return redirect(next_url)
+        record_failed_login()
+        append_audit_log(
+            'admin_login_failed',
+            'auth',
+            'admin',
+            'Admin login failed',
+            {'remote_addr': request.remote_addr or 'unknown'},
+        )
         flash('Invalid password.', 'error')
         next_target = request.form.get('next', next_target)
     return render_template('login.html', next=next_target)
