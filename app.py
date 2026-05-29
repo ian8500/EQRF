@@ -3,6 +3,8 @@ import json
 import re
 import tempfile
 import secrets
+import hashlib
+import shutil
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -41,10 +43,12 @@ load_dotenv(BASE_DIR / '.env')
 DATA_DIR = BASE_DIR / 'data'
 PDF_DIR = BASE_DIR / 'pdfs'              # keep PDFs here (matches your zip)
 JPG_DIR = BASE_DIR / 'static' / 'jpgs'   # legacy pre-rendered pages, no longer used by the public viewer
+RENDERED_DIR = BASE_DIR / 'static' / 'rendered'
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 PDF_DIR.mkdir(parents=True, exist_ok=True)
 JPG_DIR.mkdir(parents=True, exist_ok=True)
+RENDERED_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------- App Configuration ---------------------- #
 
@@ -61,6 +65,9 @@ class Settings:
     port: int = field(default_factory=lambda: int(os.environ.get('FLASK_RUN_PORT', os.environ.get('PORT', '8000'))))
     max_upload_mb: int = field(default_factory=lambda: int(os.environ.get('EQRF_MAX_UPLOAD_MB', '100')))
     session_cookie_secure: bool = field(default_factory=lambda: str(os.environ.get('EQRF_SESSION_COOKIE_SECURE', '0')).strip().lower() in {'1', 'true'})
+    render_dpi: int = field(default_factory=lambda: int(os.environ.get('EQRF_RENDER_DPI', '120')))
+    render_quality: int = field(default_factory=lambda: int(os.environ.get('EQRF_RENDER_QUALITY', '78')))
+    render_format: str = field(default_factory=lambda: os.environ.get('EQRF_RENDER_FORMAT', 'webp').strip().lower())
 
 
 SETTINGS = Settings()
@@ -487,6 +494,13 @@ def normalise_file_entry(entry: Any) -> Dict[str, Any]:
         if not isinstance(item.get('jpgs'), list):
             item['jpgs'] = []
         item['orientation'] = normalise_orientation(item.get('orientation'))
+        item['render_status'] = str(item.get('render_status') or 'missing').strip().lower()
+        item['render_format'] = str(item.get('render_format') or '').strip().lower()
+        item['rendered_at'] = _normalise_na(item.get('rendered_at'))
+        try:
+            item['page_count'] = int(item.get('page_count') or 0)
+        except (TypeError, ValueError):
+            item['page_count'] = 0
         metadata = normalise_content_metadata(item, item.get('title') or Path(item['pdf']).stem or None)
         item.update(metadata)
         return item
@@ -496,9 +510,13 @@ def normalise_file_entry(entry: Any) -> Dict[str, Any]:
             'pdf': filename,
             'jpgs': [],
             'orientation': 'portrait',
+            'render_status': 'missing',
+            'render_format': '',
+            'rendered_at': 'N/A',
+            'page_count': 0,
             **normalise_content_metadata({}, Path(filename).stem or None),
         }
-    return {'pdf': '', 'jpgs': [], 'orientation': 'portrait', **normalise_content_metadata({})}
+    return {'pdf': '', 'jpgs': [], 'orientation': 'portrait', 'render_status': 'missing', 'render_format': '', 'rendered_at': 'N/A', 'page_count': 0, **normalise_content_metadata({})}
 
 
 def file_entry_name(entry: Any) -> str:
@@ -684,6 +702,7 @@ def extract_entry_is_valid(entry: Any) -> bool:
         filename
         and metadata_is_public(metadata)
         and local_pdf_exists(filename)
+        and rendered_pages_exist(filename)
     )
 
 
@@ -886,6 +905,13 @@ def find_missing_jpgs(extracts: Any, jpg_dir: Path = JPG_DIR) -> List[Dict[str, 
     return []
 
 
+def find_missing_rendered_pages(extracts: Any) -> List[Dict[str, Any]]:
+    return [
+        item for item in flatten_extract_files(extracts)
+        if item.get('pdf_exists') and not rendered_pages_exist(item['filename'])
+    ]
+
+
 def find_orphan_jpgs(extracts: Any, jpg_dir: Path = JPG_DIR) -> List[str]:
     referenced = {
         jpg for item in flatten_extract_files(extracts)
@@ -917,6 +943,14 @@ def find_extract_health_issues(extracts: Any) -> List[Dict[str, Any]]:
             'category': item['category'],
             'filename': item['filename'],
             'message': f"Source PDF missing: {item['filename']}",
+        })
+    for item in find_missing_rendered_pages(extracts):
+        issues.append({
+            'type': 'missing_rendered_pages',
+            'severity': 'warning',
+            'category': item['category'],
+            'filename': item['filename'],
+            'message': f"Rendered pages missing: {item['filename']}",
         })
     for duplicate in find_duplicate_pdf_entries(extracts):
         issues.append({
@@ -1152,6 +1186,131 @@ def _safe_pdf_filename(filename: Any) -> str:
 
 def local_pdf_exists(filename: str) -> bool:
     return bool(filename and (PDF_DIR / filename).is_file())
+
+
+def safe_render_id(filename: Any) -> str:
+    filename = _safe_pdf_filename(filename)
+    stem = re.sub(r'[^A-Za-z0-9_.-]+', '-', Path(filename).stem).strip('.-') or 'pdf'
+    digest = hashlib.sha256(filename.encode('utf-8')).hexdigest()[:12]
+    return f'{stem}-{digest}'
+
+
+def rendered_dir_for_pdf(filename: Any) -> Path:
+    render_id = safe_render_id(filename)
+    path = (RENDERED_DIR / render_id).resolve()
+    root = RENDERED_DIR.resolve()
+    if root not in path.parents and path != root:
+        raise ValueError('Invalid rendered path.')
+    return path
+
+
+def rendered_manifest_path(filename: Any) -> Path:
+    return rendered_dir_for_pdf(filename) / 'manifest.json'
+
+
+def load_render_manifest(filename: Any) -> Optional[Dict[str, Any]]:
+    try:
+        manifest = _read_json(rendered_manifest_path(filename), None)
+    except ValueError:
+        return None
+    return manifest if isinstance(manifest, dict) else None
+
+
+def rendered_pages_exist(filename: Any) -> bool:
+    manifest = load_render_manifest(filename)
+    if not manifest or not isinstance(manifest.get('pages'), list):
+        return False
+    render_dir = rendered_dir_for_pdf(filename)
+    return bool(manifest['pages']) and all((render_dir / str(page.get('file', ''))).is_file() for page in manifest['pages'])
+
+
+def delete_rendered_pages(filename: Any) -> None:
+    shutil.rmtree(rendered_dir_for_pdf(filename), ignore_errors=True)
+
+
+def rendered_page_url(filename: Any, page_file: str) -> str:
+    render_id = safe_render_id(filename)
+    safe_page = Path(str(page_file)).name
+    return url_for('static', filename=f'rendered/{render_id}/{safe_page}')
+
+
+def get_rendered_pages(filename: Any) -> List[Dict[str, Any]]:
+    manifest = load_render_manifest(filename)
+    if not manifest or not rendered_pages_exist(filename):
+        return []
+    pages: List[Dict[str, Any]] = []
+    for page in manifest.get('pages', []):
+        item = dict(page)
+        item['url'] = rendered_page_url(filename, str(item.get('file', '')))
+        pages.append(item)
+    return pages
+
+
+def render_pdf_to_images(
+    filename: Any,
+    dpi: Optional[int] = None,
+    quality: Optional[int] = None,
+    image_format: Optional[str] = None,
+) -> Dict[str, Any]:
+    filename = _safe_pdf_filename(filename)
+    pdf_path = PDF_DIR / filename
+    if not pdf_path.is_file():
+        raise ValueError('PDF not found.')
+
+    dpi = int(dpi or Settings().render_dpi)
+    quality = int(quality or Settings().render_quality)
+    image_format = (image_format or Settings().render_format or 'webp').lower()
+    if image_format not in {'webp', 'jpg', 'jpeg'}:
+        image_format = 'webp'
+    extension = 'jpg' if image_format in {'jpg', 'jpeg'} else 'webp'
+    pil_format = 'JPEG' if extension == 'jpg' else 'WEBP'
+    rendered_at = _utc_timestamp()
+
+    try:
+        import fitz
+        from PIL import Image
+    except ImportError as exc:
+        raise RuntimeError('PDF rendering dependencies are not installed.') from exc
+
+    target_dir = rendered_dir_for_pdf(filename)
+    RENDERED_DIR.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=f'{safe_render_id(filename)}-', dir=RENDERED_DIR) as tmp:
+        tmp_dir = Path(tmp)
+        pages: List[Dict[str, Any]] = []
+        zoom = dpi / 72
+        matrix = fitz.Matrix(zoom, zoom)
+        with fitz.open(pdf_path) as doc:
+            for index, page in enumerate(doc, start=1):
+                pix = page.get_pixmap(matrix=matrix, alpha=False)
+                image = Image.frombytes('RGB', [pix.width, pix.height], pix.samples)
+                page_file = f'page-{index:03d}.{extension}'
+                output = tmp_dir / page_file
+                image.save(output, pil_format, quality=quality, optimize=True)
+                pages.append({
+                    'page': index,
+                    'file': page_file,
+                    'width': pix.width,
+                    'height': pix.height,
+                    'orientation': 'landscape' if pix.width >= pix.height else 'portrait',
+                })
+
+        manifest = {
+            'pdf': filename,
+            'format': extension,
+            'page_count': len(pages),
+            'dpi': dpi,
+            'quality': quality,
+            'pages': pages,
+            'rendered_at': rendered_at,
+        }
+        _write_json(tmp_dir / 'manifest.json', manifest)
+        backup_dir = target_dir.with_name(target_dir.name + '.old')
+        shutil.rmtree(backup_dir, ignore_errors=True)
+        if target_dir.exists():
+            target_dir.replace(backup_dir)
+        tmp_dir.replace(target_dir)
+        shutil.rmtree(backup_dir, ignore_errors=True)
+        return manifest
 
 
 def get_pdf_page_count(filename: str) -> int:
@@ -1513,6 +1672,7 @@ def _admin_context() -> Dict[str, Any]:
     orphan_jpgs = find_orphan_jpgs(extracts)
     missing_pdfs = find_missing_pdfs(extracts)
     missing_jpgs = find_missing_jpgs(extracts)
+    missing_rendered_pages = find_missing_rendered_pages(extracts)
     duplicate_pdfs = find_duplicate_pdf_entries(extracts)
 
     all_issues = list(extract_issues)
@@ -1598,6 +1758,7 @@ def _admin_context() -> Dict[str, Any]:
             'issues': all_issues,
             'missing_pdfs': missing_pdfs,
             'missing_jpgs': missing_jpgs,
+            'missing_rendered_pages': missing_rendered_pages,
             'orphan_jpgs': orphan_jpgs,
             'empty_categories': [category for category in extract_categories if category['empty']],
             'invalid_checklists': invalid_checklists,
@@ -2225,8 +2386,12 @@ def extracts_viewer(category, filename):
     pdf_path = PDF_DIR / filename
     if not pdf_path.exists():
         return _unavailable('Extract unavailable', 'The local source PDF is missing and must be repaired in Admin.', 'Back to Extracts', 'extracts_index')
+    if not rendered_pages_exist(filename):
+        return _unavailable('Extract unavailable', 'This extract has not been rendered for viewing. Please contact Admin.', 'Back to Extracts', 'extracts_index')
 
-    page_count = int(item.get('page_count') or 0) or get_pdf_page_count(filename) or 1
+    rendered_pages = get_rendered_pages(filename)
+    manifest = load_render_manifest(filename) or {}
+    page_count = int(manifest.get('page_count') or item.get('page_count') or 0) or len(rendered_pages) or 1
     orientation = normalise_orientation(item.get('orientation'))
 
     item = {
@@ -2237,6 +2402,8 @@ def extracts_viewer(category, filename):
         'page_count': page_count,
         'category': normalised_category,
         'pdf_url': url_for('send_pdf', filename=filename),
+        'rendered_pages': rendered_pages,
+        'render_format': manifest.get('format', item.get('render_format', '')),
         'metadata': item,
         'status_label': metadata_status_label(item),
         'status_state': metadata_status_state(item),
@@ -2404,6 +2571,18 @@ def upload_pdf():
 
             tmp_pdf.replace(PDF_DIR / safe_name)
 
+        try:
+            manifest = render_pdf_to_images(safe_name)
+            metadata['page_count'] = int(manifest.get('page_count') or metadata.get('page_count') or 0)
+            metadata['render_status'] = 'ready'
+            metadata['render_format'] = manifest.get('format', '')
+            metadata['rendered_at'] = manifest.get('rendered_at', _utc_timestamp())
+        except Exception as exc:
+            metadata['render_status'] = 'failed'
+            metadata['render_format'] = ''
+            metadata['rendered_at'] = 'N/A'
+            flash(f'PDF uploaded, but rendered pages failed: {exc}', 'error')
+
         upsert_pdf_entry(extracts, category, metadata, replace=replace)
         save_extracts(extracts)
         trigger_client_refresh()
@@ -2420,7 +2599,8 @@ def upload_pdf():
                 'status': metadata.get('status'),
             },
         )
-        flash(f'Uploaded {safe_name} to {category}.', 'success')
+        if metadata.get('render_status') == 'ready':
+            flash(f'Uploaded {safe_name} to {category}. {metadata.get("page_count", 0)} pages rendered.', 'success')
     except ValueError as exc:
         flash(str(exc), 'error')
     return redirect(url_for('admin_panel'))
@@ -2506,6 +2686,8 @@ def delete_pdf():
         extracts = _json_clone(get_extracts())
         if remove_pdf_entry(extracts, category, filename):
             save_extracts(extracts)
+            if not pdf_is_registered(filename, extracts):
+                delete_rendered_pages(filename)
             trigger_client_refresh()
             append_audit_log('delete_extract', 'extract', f'{category}/{filename}', f'Deleted extract {filename} from {category}')
             flash(f'Deleted {filename} from {category}.', 'info')
@@ -2537,12 +2719,16 @@ def regenerate_pdf():
             raise ValueError('Missing file.')
 
         item = normalise_file_entry(entry)
-        page_count = get_pdf_page_count(filename) or int(item.get('page_count') or 0)
+        manifest = render_pdf_to_images(filename)
+        page_count = int(manifest.get('page_count') or 0) or get_pdf_page_count(filename) or int(item.get('page_count') or 0)
 
         item.update({
             'pdf': filename,
             'title': item.get('title') or _pdf_base(filename),
             'page_count': page_count,
+            'render_status': 'ready',
+            'render_format': manifest.get('format', ''),
+            'rendered_at': manifest.get('rendered_at', _utc_timestamp()),
             'refreshed_at': _utc_timestamp(),
             'last_updated': _utc_timestamp(),
             'source': item.get('source') or 'admin',
@@ -2550,9 +2736,9 @@ def regenerate_pdf():
         upsert_pdf_entry(extracts, category, item, replace=True)
         save_extracts(extracts)
         trigger_client_refresh()
-        append_audit_log('refresh_extract_metadata', 'extract', f'{category}/{filename}', f'Refreshed PDF metadata for {filename}')
-        flash(f'Refreshed metadata for {filename}.', 'success')
-    except ValueError as exc:
+        append_audit_log('regenerate_rendered_pages', 'extract', f'{category}/{filename}', f'Regenerated rendered pages for {filename}', {'page_count': page_count, 'format': manifest.get('format')})
+        flash(f'Regenerated rendered pages for {filename}. {page_count} pages ready.', 'success')
+    except (ValueError, RuntimeError) as exc:
         flash(str(exc), 'error')
     return redirect(url_for('admin_panel'))
 

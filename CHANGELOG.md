@@ -12,5 +12,6 @@
 - Improved responsive layout for desktop, iPad, and tablet use with compact headers/toolbars and fluid content grids.
 - Hardened Admin authentication with CSRF protection, password-hash support, failed-login rate limiting, audit logging, and secure session cookie defaults.
 - Optimised the PDF viewer for iPad use with lazy rendering, canvas cleanup, Beelink Gunicorn thread defaults, and Admin PDF performance diagnostics.
+- Reintroduced server-rendered PDF page images as a hybrid iPad viewer while keeping original PDFs for search, metadata, and Admin workflows.
 
 Future changes should update this file when user-facing behaviour, deployment steps, data model, or admin workflows change.

@@ -501,9 +501,129 @@ function saveChecklistState() {
       applyViewerLayout({ preserve: false });
     }
 
+    function renderedBaseSize(parts) {
+      const first = parts?.frames?.[0];
+      const width = Number(first?.dataset.width || 0) || 1;
+      const height = Number(first?.dataset.height || 0) || 1;
+      return (state.rotation % 180 === 0) ? { width, height } : { width: height, height: width };
+    }
+
+    async function renderedScaleForWidth(parts) {
+      const size = renderedBaseSize(parts);
+      const available = Math.max(240, parts.scroll.clientWidth - MARGIN);
+      return clamp(available / size.width);
+    }
+
+    async function renderedScaleForHeight(parts) {
+      const size = renderedBaseSize(parts);
+      const available = Math.max(240, parts.scroll.clientHeight - MARGIN);
+      return clamp(available / size.height);
+    }
+
+    function applyRenderedLayout(options = {}) {
+      const parts = viewer();
+      if (!parts || !parts.scroll || !parts.frames.length) return;
+      const context = options.preserve === false ? { index: 0, ratio: 0 } : currentPageContext(parts);
+      const finish = () => {
+        parts.frames.forEach(frame => {
+          const image = frame.querySelector(".rendered-page-image");
+          const baseWidth = Number(frame.dataset.width || image?.naturalWidth || 0);
+          const baseHeight = Number(frame.dataset.height || image?.naturalHeight || 0);
+          if (!image || !baseWidth || !baseHeight) return;
+          const imageWidth = Math.ceil(baseWidth * state.scale);
+          const imageHeight = Math.ceil(baseHeight * state.scale);
+          const rotated = state.rotation % 180 !== 0;
+          const layoutWidth = rotated ? imageHeight : imageWidth;
+          const layoutHeight = rotated ? imageWidth : imageHeight;
+          frame.style.width = `${layoutWidth}px`;
+          frame.style.minHeight = `${layoutHeight}px`;
+          image.style.width = `${imageWidth}px`;
+          image.style.height = `${imageHeight}px`;
+          image.style.left = `${Math.round((layoutWidth - imageWidth) / 2)}px`;
+          image.style.top = `${Math.round((layoutHeight - imageHeight) / 2)}px`;
+          image.style.transform = `rotate(${state.rotation}deg)`;
+        });
+        updateIndicators(parts);
+        if (options.preserve !== false) restorePageContext(parts, context);
+      };
+      if (state.mode === "width") {
+        renderedScaleForWidth(parts).then(scale => {
+          state.scale = scale;
+          finish();
+        });
+        return;
+      }
+      if (state.mode === "height") {
+        renderedScaleForHeight(parts).then(scale => {
+          state.scale = scale;
+          finish();
+        });
+        return;
+      }
+      state.scale = clamp(state.scale);
+      finish();
+    }
+
+    function bindRenderedViewer(parts) {
+      const first = parts.frames[0];
+      const naturalLandscape = Number(first?.dataset.width || 0) >= Number(first?.dataset.height || 0);
+      const documentOrientation = (parts.shell.dataset.orientation || "portrait").toLowerCase() === "landscape" ? "landscape" : "portrait";
+      state.defaultRotation = naturalLandscape === (documentOrientation === "landscape") ? 0 : 90;
+      state.rotation = state.defaultRotation;
+
+      const renderedFitWidth = () => {
+        state.mode = "width";
+        applyRenderedLayout();
+      };
+      const renderedFitHeight = () => {
+        state.mode = "height";
+        applyRenderedLayout();
+      };
+      const renderedZoomIn = () => {
+        state.mode = "custom";
+        state.scale = clamp(state.scale + STEP);
+        applyRenderedLayout();
+      };
+      const renderedZoomOut = () => {
+        state.mode = "custom";
+        state.scale = clamp(state.scale - STEP);
+        applyRenderedLayout();
+      };
+      const renderedRotate = () => {
+        state.rotation = (state.rotation + 90) % 360;
+        applyRenderedLayout();
+      };
+      const renderedReset = () => {
+        state.rotation = state.defaultRotation;
+        state.mode = "custom";
+        state.scale = 1;
+        applyRenderedLayout({ preserve: false });
+      };
+
+      document.getElementById("pdf-zoom-in")?.addEventListener("click", renderedZoomIn);
+      document.getElementById("pdf-zoom-out")?.addEventListener("click", renderedZoomOut);
+      document.getElementById("pdf-fit-width")?.addEventListener("click", renderedFitWidth);
+      document.getElementById("pdf-fit-height")?.addEventListener("click", renderedFitHeight);
+      document.getElementById("pdf-rotate")?.addEventListener("click", renderedRotate);
+      document.getElementById("pdf-reset")?.addEventListener("click", renderedReset);
+      parts.scroll.addEventListener("scroll", () => updateCurrentPage(), { passive: true });
+      const resize = () => {
+        if (typeof window.eqrfSetLayoutHeights === "function") window.eqrfSetLayoutHeights();
+        applyRenderedLayout();
+      };
+      window.addEventListener("resize", resize);
+      window.addEventListener("orientationchange", resize);
+      if (window.visualViewport) window.visualViewport.addEventListener("resize", resize);
+      renderedReset();
+    }
+
     async function bindPdfViewer() {
       const parts = viewer();
       if (!parts || !parts.scroll) return;
+      if (parts.shell.dataset.viewerMode === "rendered") {
+        bindRenderedViewer(parts);
+        return;
+      }
       if (!window.pdfjsLib) {
         if (parts.stack) parts.stack.innerHTML = '<p class="page-copy">This PDF could not be loaded.</p>';
         return;

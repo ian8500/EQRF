@@ -1,6 +1,8 @@
 import io
 import importlib
+import json
 import re
+import shutil
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -34,8 +36,12 @@ from app import (
     normalise_category_path,
     normalise_orientation,
     production_safety_warnings,
+    rendered_dir_for_pdf,
+    rendered_manifest_path,
+    rendered_pages_exist,
     get_general_reference_entries,
     get_cached_pdf_text_pages,
+    load_render_manifest,
     search_pdf_text,
     safe_path_parts,
     Settings,
@@ -65,13 +71,16 @@ def csrf_for(client):
 def isolated_content(monkeypatch, tmp_path):
     pdf_dir = tmp_path / 'pdfs'
     jpg_dir = tmp_path / 'jpgs'
+    rendered_dir = tmp_path / 'rendered'
     pdf_dir.mkdir()
     jpg_dir.mkdir()
+    rendered_dir.mkdir()
     checklists = {}
     extracts = {}
 
     monkeypatch.setattr(app_module, 'PDF_DIR', pdf_dir)
     monkeypatch.setattr(app_module, 'JPG_DIR', jpg_dir)
+    monkeypatch.setattr(app_module, 'RENDERED_DIR', rendered_dir)
     monkeypatch.setattr(app_module, 'get_checklists', lambda: checklists)
     monkeypatch.setattr(app_module, 'get_extracts', lambda: extracts)
 
@@ -80,11 +89,35 @@ def isolated_content(monkeypatch, tmp_path):
         names = jpgs or [filename.replace('.pdf', '_page1.jpg')]
         for jpg in names:
             (jpg_dir / jpg).write_bytes(b'jpg')
+        render_dir = app_module.rendered_dir_for_pdf(filename)
+        render_dir.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            'pdf': filename,
+            'format': 'webp',
+            'page_count': max(1, len(names)),
+            'dpi': 120,
+            'quality': 78,
+            'pages': [
+                {
+                    'page': index,
+                    'file': f'page-{index:03d}.webp',
+                    'width': 900,
+                    'height': 1200,
+                    'orientation': 'portrait',
+                }
+                for index in range(1, max(1, len(names)) + 1)
+            ],
+            'rendered_at': '2026-05-29T12:00:00Z',
+        }
+        for page in manifest['pages']:
+            (render_dir / page['file']).write_bytes(b'webp')
+        (render_dir / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
         return names
 
     return SimpleNamespace(
         pdf_dir=pdf_dir,
         jpg_dir=jpg_dir,
+        rendered_dir=rendered_dir,
         checklists=checklists,
         extracts=extracts,
         publish_pdf=publish_pdf,
@@ -319,6 +352,9 @@ def test_env_example_documents_required_runtime_values():
         'GUNICORN_WORKERS=1',
         'GUNICORN_THREADS=4',
         'EQRF_BACKUP_DIR=backups',
+        'EQRF_RENDER_DPI=120',
+        'EQRF_RENDER_QUALITY=78',
+        'EQRF_RENDER_FORMAT=webp',
     ]:
         assert key in example
 
@@ -519,7 +555,8 @@ def test_requirements_no_longer_include_jpg_rendering_stack():
     requirements = (app_module.BASE_DIR / 'requirements.txt').read_text(encoding='utf-8')
 
     assert 'pdf2image' not in requirements
-    assert 'Pillow' not in requirements
+    assert 'Pillow' in requirements
+    assert 'PyMuPDF' in requirements
     assert 'pypdf' in requirements
 
 
@@ -574,6 +611,37 @@ def test_admin_post_without_csrf_is_blocked_and_audited(client, monkeypatch):
 
     assert response.status_code == 400
     assert any(entry['action'] == 'csrf_failure' for entry in get_audit_log())
+
+
+def test_regenerate_rendered_pages_updates_metadata(client, monkeypatch, isolated_content):
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+    isolated_content.publish_pdf('Render.pdf')
+    isolated_content.extracts.update({'AIR': {'__files__': [{'pdf': 'Render.pdf', 'title': 'Render', 'render_status': 'missing'}]}})
+    client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
+
+    monkeypatch.setattr(app_module, 'render_pdf_to_images', lambda filename: {
+        'format': 'webp',
+        'page_count': 2,
+        'rendered_at': '2026-05-29T12:00:00Z',
+        'pages': [],
+    })
+    monkeypatch.setattr(
+        app_module,
+        'save_extracts',
+        lambda extracts: isolated_content.extracts.clear() or isolated_content.extracts.update(extracts),
+    )
+
+    response = client.post(
+        '/admin/regenerate_pdf',
+        data={'csrf_token': csrf_for(client), 'category': 'AIR', 'filename': 'Render.pdf'},
+        follow_redirects=True,
+    )
+
+    entry = isolated_content.extracts['AIR']['__files__'][0]
+    assert response.status_code == 200
+    assert entry['render_status'] == 'ready'
+    assert entry['render_format'] == 'webp'
+    assert entry['page_count'] == 2
 
 
 def test_admin_forms_include_csrf_tokens(client, monkeypatch):
@@ -754,6 +822,32 @@ def test_extract_health_helpers_detect_missing_assets_and_orphans(tmp_path):
     assert find_orphan_jpgs(extracts, jpg_dir=tmp_path) == ['orphan.jpg']
 
 
+def test_rendered_page_helpers_are_safe_and_detect_ready_manifest(isolated_content):
+    isolated_content.publish_pdf('Render Me.pdf')
+
+    render_dir = rendered_dir_for_pdf('Render Me.pdf')
+    manifest_path = rendered_manifest_path('Render Me.pdf')
+
+    assert render_dir.is_relative_to(isolated_content.rendered_dir)
+    assert manifest_path.name == 'manifest.json'
+    assert rendered_pages_exist('Render Me.pdf') is True
+    assert load_render_manifest('Render Me.pdf')['pdf'] == 'Render Me.pdf'
+    with pytest.raises(ValueError):
+        rendered_dir_for_pdf('../secret.pdf')
+
+
+def test_missing_rendered_pages_hide_public_extract(client, isolated_content):
+    isolated_content.publish_pdf('Unrendered.pdf')
+    shutil.rmtree(rendered_dir_for_pdf('Unrendered.pdf'))
+    isolated_content.extracts.update({'AIR': {'__files__': [{'pdf': 'Unrendered.pdf', 'title': 'Unrendered'}]}})
+
+    index = client.get('/extracts').get_data(as_text=True)
+    viewer = client.get('/viewer/AIR/Unrendered.pdf').get_data(as_text=True)
+
+    assert 'Unrendered' not in index
+    assert 'has not been rendered for viewing' in viewer
+
+
 def test_empty_checklist_folders_are_not_shown(client, isolated_content):
     isolated_content.checklists.update({
         'Empty': {'Nothing': []},
@@ -811,7 +905,7 @@ def test_home_page_does_not_show_public_summary_or_status_panels(client):
         assert text not in html
 
 
-def test_empty_extract_folders_and_missing_assets_are_hidden(client, isolated_content):
+def test_empty_extract_folders_and_missing_rendered_assets_are_hidden(client, isolated_content):
     isolated_content.extracts.update({
         'Empty': {},
         'AIR': {'__files__': ['Missing.pdf']},
@@ -822,10 +916,10 @@ def test_empty_extract_folders_and_missing_assets_are_hidden(client, isolated_co
     response = client.get('/extracts')
 
     assert response.status_code == 200
-    assert b'GROUND' in response.data
+    assert b'GROUND' not in response.data
     assert b'Empty' not in response.data
     assert b'Missing.pdf' not in response.data
-    assert filtered_extract_tree(isolated_content.extracts) == {'GROUND': {'__files__': [{'pdf': 'NoJpg.pdf', 'jpgs': ['NoJpg_page1.jpg']}]}}
+    assert filtered_extract_tree(isolated_content.extracts) == {}
 
 
 def test_extracts_index_hides_general_reference_sources(client, isolated_content):
@@ -1104,7 +1198,8 @@ def test_extract_viewer_uses_professional_pdf_viewer_controls(client, isolated_c
     assert 'pdf-scroll' in html
     assert 'pdf-page-stack' in html
     assert 'data-pdf-url="/pdfs/Viewer.pdf"' in html
-    assert 'pdfjs/pdf.js' in html
+    assert 'data-viewer-mode="rendered"' in html
+    assert 'pdfjs/pdf.js' not in html
     assert 'pdf-page-image extract-image' not in html
 
 
@@ -1152,7 +1247,7 @@ def test_extract_viewer_passes_portrait_orientation_to_pdf_shell(client, isolate
     assert 'data-orientation="portrait"' in html
 
 
-def test_extract_viewer_uses_pdfjs_stack_without_static_jpg_images(client, isolated_content):
+def test_extract_viewer_uses_rendered_images_without_static_jpg_pages(client, isolated_content):
     jpgs = isolated_content.publish_pdf('Multi.pdf', ['Multi_page1.jpg', 'Multi_page2.jpg'])
     isolated_content.extracts.update({'Tower': {'__files__': [{'pdf': 'Multi.pdf', 'jpgs': jpgs, 'title': 'Multi'}]}})
 
@@ -1162,7 +1257,10 @@ def test_extract_viewer_uses_pdfjs_stack_without_static_jpg_images(client, isola
     assert response.status_code == 200
     assert 'id="pdf-page-stack"' in html
     assert '/jpgs/' not in html
-    assert '<img' not in html
+    assert 'class="rendered-page-image"' in html
+    assert 'loading="eager"' in html
+    assert 'loading="lazy"' in html
+    assert 'data:image' not in html
 
 
 def test_pdf_viewer_script_handles_fit_modes_rotation_and_layout():
@@ -1178,6 +1276,9 @@ def test_pdf_viewer_script_handles_fit_modes_rotation_and_layout():
     assert 'state.rotation = state.defaultRotation' in script
     assert 'pdfjsLib.getDocument' in script
     assert 'page.render' in script
+    assert 'data-viewer-mode="rendered"' not in script
+    assert 'bindRenderedViewer' in script
+    assert 'renderedScaleForWidth' in script
     assert 'state.mode === "width"' in script
     assert 'state.mode === "height"' in script
     assert 'orientationchange' in script

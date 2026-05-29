@@ -29,6 +29,7 @@
   data-filename="{{ item.pdf }}"
   data-orientation="{{ item.orientation }}"
   data-pdf-url="{{ item.pdf_url }}"
+  data-viewer-mode="rendered"
   data-can-search="{{ 'true' if can_search_pdf else 'false' }}">
   <div id="pdf-toolbar" class="pdf-toolbar compact-toolbar">
     {% if parent_path == '--' %}
@@ -62,16 +63,27 @@
   {% endif %}
 
   <div class="pdf-scroll" id="pdf-scroll">
-    <div class="pdf-page-stack" id="pdf-page-stack" aria-live="polite">
-      <p class="page-copy">Loading PDF...</p>
+    <div class="pdf-page-stack rendered-page-stack" id="pdf-page-stack" aria-live="polite">
+      {% for page in item.rendered_pages %}
+        <figure
+          class="pdf-page rendered-page-frame"
+          data-page-index="{{ page.page - 1 }}"
+          data-page-number="{{ page.page }}"
+          data-width="{{ page.width }}"
+          data-height="{{ page.height }}">
+          <figcaption>Page {{ page.page }} of {{ item.page_count }}</figcaption>
+          <img
+            class="rendered-page-image"
+            src="{{ page.url }}"
+            width="{{ page.width }}"
+            height="{{ page.height }}"
+            loading="{{ 'eager' if loop.first else 'lazy' }}"
+            decoding="async"
+            alt="{{ page_title }} page {{ page.page }}">
+        </figure>
+      {% endfor %}
     </div>
   </div>
 </section>
 </section>
-<script src="{{ url_for('static', filename='pdfjs/pdf.js') }}"></script>
-<script>
-  if (window.pdfjsLib) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = "{{ url_for('static', filename='pdfjs/pdf.worker.js') }}";
-  }
-</script>
 {% endblock %}

@@ -714,6 +714,10 @@ button[type="submit"]:hover {
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
 }
 
+.rendered-page-frame {
+  overflow: hidden;
+}
+
 .pdf-page figcaption {
   position: absolute;
   top: 6px;
@@ -739,6 +743,15 @@ button[type="submit"]:hover {
 .pdf-canvas {
   display: block;
   max-width: none;
+}
+
+.rendered-page-image {
+  position: absolute;
+  display: block;
+  max-width: none;
+  transform-origin: center center;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .pdf-text-layer,

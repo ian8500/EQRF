@@ -20,8 +20,8 @@ The app is intended for trusted local network use, not public internet exposure.
 - **Checklists**: nested checklist groups with large touchscreen-friendly checklist rows, progress tracking, reset controls, section dividers, and CAT A critical styling.
 - **Extracts**: operationally categorised PDFs from `data/extracts.json`.
 - **General Reference / Quick Reference PDFs**: uncategorised reference PDFs, including entries under `--`, root `__files__`, and qualifying legacy `MISC` entries.
-- **PDF viewer**: direct local PDF viewing through vendored PDF.js files in `static/pdfjs/`; no CDN is required.
-- **PDF controls**: 100% default zoom, lazy page rendering, Zoom +, Zoom -, Fit Width, Fit Height, Rotate, Reset, page count, and scrollable multi-page rendering.
+- **PDF viewer**: hybrid source-PDF plus pre-rendered image viewing. Original PDFs stay in `pdfs/`; fast iPad viewing uses optimised rendered pages in `static/rendered/`.
+- **PDF controls**: 100% default zoom, lazy image loading, Zoom +, Zoom -, Fit Width, Fit Height, Rotate, Reset, page count, and scrollable multi-page rendering.
 - **PDF search**: in-document search is available only for General Reference / Quick Reference PDFs. Categorised operational extracts do not show search controls.
 - **Responsive operational layout**: compact headers, toolbars, and fluid card grids designed for desktops, laptops, iPads, and smaller tablets.
 - **Admin panel**: upload PDFs, edit extract metadata, create/edit/delete checklists, view health warnings, view audit log, and trigger client refresh.
@@ -53,7 +53,8 @@ wsgi.py                 Production WSGI entry point for Gunicorn.
 data/                   Local JSON storage for extracts, checklists, audit log, and generated caches.
 pdfs/                   Source PDF files served to the PDF.js viewer.
 static/                 CSS, JavaScript, vendored PDF.js, images, and legacy JPG assets.
-static/pdfjs/           Local PDF.js runtime files.
+static/pdfjs/           Legacy local PDF.js runtime files. Kept for compatibility/reference.
+static/rendered/        Optimised rendered PDF page images and manifests for fast iPad viewing.
 static/jpgs/            Legacy generated JPG pages. Not used by the current public PDF viewer.
 templates/              Jinja templates for public UI, PDF viewer, login, and Admin.
 tests/                  pytest test suite.
@@ -545,19 +546,21 @@ The audit log is append-only from the UI perspective.
 
 ## PDF Handling
 
-The current viewer architecture uses original source PDFs directly.
+The current viewer architecture is hybrid: original source PDFs are retained, while public viewing uses pre-rendered optimised page images for iPad speed.
 
 - Source PDFs are stored in `pdfs/`.
-- Public PDF viewing uses local PDF.js files in `static/pdfjs/`.
+- Public PDF viewing uses rendered WEBP/JPG page images in `static/rendered/<safe_pdf_id>/`.
+- Each rendered PDF has a `manifest.json` with page count, page dimensions, render format, quality, and render timestamp.
 - The viewer route renders `templates/extracts_viewer.html`.
-- The PDF file is served through `/pdfs/<filename>`.
+- The original PDF file is still served safely through `/pdfs/<filename>` for local registered PDFs.
 - `/pdfs/<filename>` only serves registered local PDFs.
 - Flask `send_from_directory(..., conditional=True)` is used so browsers can make efficient local requests.
-- Public extract validity depends on the source PDF existing and governance metadata being public.
-- Extract orientation metadata (`portrait` or `landscape`) controls the initial PDF.js display orientation. Reset View returns to that tagged orientation.
-- Large documents use lightweight page placeholders and lazy PDF.js rendering near the current iPad viewport.
+- Public extract visibility depends on the source PDF existing, governance metadata being public, and rendered pages being available.
+- Extract orientation metadata (`portrait` or `landscape`) controls the initial rendered-page display orientation. Reset View returns to that tagged orientation.
+- Large documents use image dimensions from the manifest, `loading="lazy"`, `decoding="async"`, and no base64 embedding.
+- Render settings can be adjusted with `EQRF_RENDER_DPI`, `EQRF_RENDER_QUALITY`, and `EQRF_RENDER_FORMAT`.
 
-JPG rendering is no longer part of the runtime viewer or upload workflow.
+Rendered pages are created during Admin upload or by using the Admin “Regenerate Rendered Pages” action. Public viewer requests do not render PDFs.
 
 Legacy JPG files may still exist in:
 
