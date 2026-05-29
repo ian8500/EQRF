@@ -275,6 +275,23 @@
           {% endif %}
         </div>
         <div>
+          <h4>PDF performance</h4>
+          <ul class="health-list">
+            <li>Total PDFs: {{ health.performance.total_pdfs }}</li>
+            <li>Large PDF threshold: {{ health.performance.large_pdf_threshold_mb }} MB</li>
+            <li>Large PDFs: {{ health.performance.large_pdf_count }}</li>
+            <li>Text cache: {{ 'Present' if health.performance.text_cache_exists else 'Not built' }}{% if health.performance.text_cache_exists %} · {{ health.performance.text_cache_size_kb }} KB{% endif %}</li>
+            <li>Server mode: {{ health.performance.server_mode }}</li>
+          </ul>
+          {% if health.performance.largest_pdfs %}
+            <ul class="health-list">
+              {% for pdf in health.performance.largest_pdfs %}
+                <li>{{ pdf.filename }} · {{ pdf.size_mb }} MB{% if pdf.large %} · Large{% endif %}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+        <div>
           <h4>Missing source PDFs</h4>
           {% if health.missing_pdfs %}
             <ul class="health-list">

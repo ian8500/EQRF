@@ -127,6 +127,8 @@ function saveChecklistState() {
     const MAX_SCALE = 4;
     const STEP = 0.1;
     const MARGIN = 24;
+    const PAGE_BUFFER = 2;
+    const OBSERVER_MARGIN = "900px 0px";
     const state = {
       scale: 1,
       rotation: 0,
@@ -136,6 +138,8 @@ function saveChecklistState() {
       pageCount: 0,
       renderToken: 0,
       renderedPages: new Set(),
+      renderingPages: new Set(),
+      observer: null,
       pageText: new Map()
     };
 
@@ -267,14 +271,51 @@ function saveChecklistState() {
       }
     }
 
-    async function renderPage(pageNumber, token) {
+    function pageBufferNumbers(centerPage) {
+      const start = Math.max(1, centerPage - PAGE_BUFFER);
+      const end = Math.min(state.pageCount || centerPage, centerPage + PAGE_BUFFER);
+      const pages = [];
+      for (let page = start; page <= end; page += 1) pages.push(page);
+      return pages;
+    }
+
+    function clearPageCanvas(frame) {
+      const pageNumber = Number(frame?.dataset.pageNumber || 0);
+      const canvas = frame?.querySelector(".pdf-canvas");
+      const textLayer = frame?.querySelector(".pdf-text-layer");
+      const highlightLayer = frame?.querySelector(".pdf-highlight-layer");
+      if (canvas) {
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+      if (textLayer) textLayer.innerHTML = "";
+      if (highlightLayer) highlightLayer.innerHTML = "";
+      if (frame) delete frame.dataset.rendered;
+      if (pageNumber) {
+        state.renderedPages.delete(pageNumber);
+        state.pageText.delete(pageNumber);
+      }
+    }
+
+    function clearPagesOutsideBuffer(centerPage, keepExtra = []) {
+      const keep = new Set([...pageBufferNumbers(centerPage), ...keepExtra.map(Number)]);
+      document.querySelectorAll(".pdf-page[data-rendered='true']").forEach(frame => {
+        const pageNumber = Number(frame.dataset.pageNumber || 0);
+        if (pageNumber && !keep.has(pageNumber)) clearPageCanvas(frame);
+      });
+    }
+
+    async function renderPage(pageNumber, token = state.renderToken) {
       if (!state.pdf) return;
-      if (state.renderedPages.has(`${token}:${pageNumber}`)) return;
+      if (token !== state.renderToken) return;
+      if (state.renderedPages.has(pageNumber)) return;
+      const renderKey = `${token}:${pageNumber}`;
+      if (state.renderingPages.has(renderKey)) return;
       const parts = viewer();
       const frame = document.querySelector(`.pdf-page[data-page-number="${pageNumber}"]`);
       const canvas = frame?.querySelector(".pdf-canvas");
       if (!parts || !frame || !canvas) return;
-      state.renderedPages.add(`${token}:${pageNumber}`);
+      state.renderingPages.add(renderKey);
       const page = await state.pdf.getPage(pageNumber);
       const viewport = page.getViewport({ scale: state.scale, rotation: state.rotation });
       const context = canvas.getContext("2d");
@@ -295,10 +336,16 @@ function saveChecklistState() {
       });
 
       const transform = outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null;
-      await page.render({ canvasContext: context, viewport, transform }).promise;
-      if (token !== state.renderToken) return;
-      frame.dataset.rendered = "true";
-      await renderTextLayer(page, frame, viewport);
+      try {
+        await page.render({ canvasContext: context, viewport, transform }).promise;
+        if (token !== state.renderToken) return;
+        frame.dataset.rendered = "true";
+        state.renderedPages.add(pageNumber);
+        await renderTextLayer(page, frame, viewport);
+        reapplyClientSearchHighlights();
+      } finally {
+        state.renderingPages.delete(renderKey);
+      }
     }
 
     async function preparePageFrames() {
@@ -309,6 +356,7 @@ function saveChecklistState() {
       const width = Math.ceil(viewport.width * state.scale);
       const height = Math.ceil(viewport.height * state.scale);
       parts.frames.forEach(frame => {
+        clearPageCanvas(frame);
         delete frame.dataset.rendered;
         frame.style.width = `${width}px`;
         frame.style.minHeight = `${height}px`;
@@ -346,6 +394,23 @@ function saveChecklistState() {
       parts.frames = Array.from(parts.shell.querySelectorAll(".pdf-page"));
     }
 
+    function setupPageObserver(parts) {
+      if (!parts || !parts.scroll || !parts.frames.length || !("IntersectionObserver" in window)) return;
+      if (state.observer) state.observer.disconnect();
+      state.observer = new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+          if (!entry.isIntersecting) return;
+          const pageNumber = Number(entry.target.dataset.pageNumber || 0);
+          if (pageNumber) renderPageBuffer(pageNumber);
+        });
+      }, {
+        root: parts.scroll,
+        rootMargin: OBSERVER_MARGIN,
+        threshold: 0.01
+      });
+      parts.frames.forEach(frame => state.observer.observe(frame));
+    }
+
     async function applyViewerLayout(options = {}) {
       const parts = viewer();
       if (!parts || !parts.scroll || !parts.frames.length) return;
@@ -357,7 +422,9 @@ function saveChecklistState() {
 
       const token = ++state.renderToken;
       state.renderedPages = new Set();
+      state.renderingPages = new Set();
       await preparePageFrames();
+      setupPageObserver(parts);
       await renderVisiblePages(token);
 
       updateIndicators(parts);
@@ -369,13 +436,25 @@ function saveChecklistState() {
       const parts = viewer();
       if (!parts || !parts.scroll || !parts.frames.length || !state.pdf) return;
       const top = parts.scroll.scrollTop - parts.scroll.clientHeight;
-      const bottom = parts.scroll.scrollTop + (parts.scroll.clientHeight * 2.5);
+      const bottom = parts.scroll.scrollTop + (parts.scroll.clientHeight * 1.75);
       const visible = parts.frames
         .filter(frame => frame.offsetTop + frame.offsetHeight >= top && frame.offsetTop <= bottom)
         .map(frame => Number(frame.dataset.pageNumber));
-      const pages = visible.length ? visible : [1];
-      await Promise.all(pages.map(pageNumber => renderPage(pageNumber, token)));
+      const context = currentPageContext(parts);
+      const centerPage = visible[0] || (context.index + 1) || 1;
+      const pages = new Set([...(visible.length ? visible : [1]), ...pageBufferNumbers(centerPage)]);
+      for (const pageNumber of pages) {
+        await renderPage(pageNumber, token);
+      }
+      clearPagesOutsideBuffer(centerPage, visible);
       reapplyClientSearchHighlights();
+    }
+
+    async function renderPageBuffer(centerPage, token = state.renderToken) {
+      for (const pageNumber of pageBufferNumbers(centerPage)) {
+        await renderPage(pageNumber, token);
+      }
+      clearPagesOutsideBuffer(centerPage, searchState.results.map(result => result.page));
     }
 
     function updateCurrentPage(parts = viewer()) {
@@ -465,6 +544,7 @@ function saveChecklistState() {
         state.defaultRotation = await calculateDefaultRotation(parts);
         state.rotation = state.defaultRotation;
         ensurePageFrames(parts);
+        setupPageObserver(viewer());
         if (typeof window.eqrfSetLayoutHeights === "function") window.eqrfSetLayoutHeights();
         updateIndicators(viewer());
         await applyViewerLayout({ preserve: false });
@@ -553,7 +633,7 @@ function saveChecklistState() {
       setSearchCount();
     }
 
-    function goToSearchResult(index) {
+    async function goToSearchResult(index) {
       if (!searchState.results.length) return;
       searchState.currentIndex = (index + searchState.results.length) % searchState.results.length;
       clearSearchHighlights();
@@ -566,6 +646,8 @@ function saveChecklistState() {
       if (frame) {
         frame.classList.add("search-current");
         frame.scrollIntoView({ behavior: "smooth", block: "start" });
+        await renderPageBuffer(Number(result.page || frame.dataset.pageNumber || 1));
+        frame.classList.add("search-current");
       }
       const resultButton = document.querySelector(`.pdf-search-result[data-result-index="${searchState.currentIndex}"]`);
       if (resultButton) resultButton.classList.add("active");

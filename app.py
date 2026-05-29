@@ -1469,6 +1469,38 @@ def _governance_summary(extract_files: List[Dict[str, Any]], checklist_paths: Li
     return summary
 
 
+def pdf_performance_diagnostics(extract_files: List[Dict[str, Any]]) -> Dict[str, Any]:
+    threshold_mb = float(os.environ.get('EQRF_LARGE_PDF_MB', '25'))
+    seen: set[str] = set()
+    pdfs: List[Dict[str, Any]] = []
+    for item in extract_files:
+        filename = item.get('filename')
+        if not filename or filename in seen:
+            continue
+        seen.add(filename)
+        pdf_path = PDF_DIR / filename
+        if not pdf_path.is_file():
+            continue
+        size_bytes = pdf_path.stat().st_size
+        pdfs.append({
+            'filename': filename,
+            'size_bytes': size_bytes,
+            'size_mb': round(size_bytes / (1024 * 1024), 2),
+            'large': size_bytes >= threshold_mb * 1024 * 1024,
+        })
+
+    pdfs.sort(key=lambda item: item['size_bytes'], reverse=True)
+    return {
+        'total_pdfs': len(pdfs),
+        'largest_pdfs': pdfs[:5],
+        'large_pdf_threshold_mb': threshold_mb,
+        'large_pdf_count': len([item for item in pdfs if item['large']]),
+        'text_cache_exists': PDF_TEXT_CACHE_JSON.exists(),
+        'text_cache_size_kb': round(PDF_TEXT_CACHE_JSON.stat().st_size / 1024, 1) if PDF_TEXT_CACHE_JSON.exists() else 0,
+        'server_mode': 'development' if (app.debug or Settings().debug) else 'production',
+    }
+
+
 def _admin_context() -> Dict[str, Any]:
     extracts = get_extracts()
     checklists = get_checklists()
@@ -1573,6 +1605,7 @@ def _admin_context() -> Dict[str, Any]:
             'duplicate_pdfs': duplicate_pdfs,
             'json_status': _json_status(),
             'production_warnings': production_safety_warnings(),
+            'performance': pdf_performance_diagnostics(extract_files),
         },
     }
 

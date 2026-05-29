@@ -149,10 +149,20 @@ def test_systemd_service_uses_managed_hardened_runtime():
     service = (app_module.BASE_DIR / 'deploy' / 'eqrf.service.example').read_text(encoding='utf-8')
 
     assert 'EnvironmentFile=/opt/EQRF/.env' in service
-    assert 'ExecStart=/opt/EQRF/venv/bin/gunicorn -w 2 -b 0.0.0.0:8000 wsgi:application' in service
+    assert 'ExecStart=/opt/EQRF/venv/bin/gunicorn --worker-class gthread --workers 1 --threads 4 --timeout 0 --bind 0.0.0.0:8000 wsgi:application' in service
     assert 'Restart=always' in service
     assert 'NoNewPrivileges=true' in service
     assert 'ReadWritePaths=/opt/EQRF/data /opt/EQRF/pdfs /opt/EQRF/static /opt/EQRF/backups' in service
+
+
+def test_production_script_uses_beelink_gthread_defaults():
+    script = (app_module.BASE_DIR / 'scripts' / 'run_production.sh').read_text(encoding='utf-8')
+
+    assert 'GUNICORN_WORKERS="${GUNICORN_WORKERS:-1}"' in script
+    assert 'GUNICORN_THREADS="${GUNICORN_THREADS:-4}"' in script
+    assert '--worker-class gthread' in script
+    assert '--threads "$GUNICORN_THREADS"' in script
+    assert '--timeout 0' in script
 
 
 def test_max_content_length_is_configured():
@@ -306,7 +316,8 @@ def test_env_example_documents_required_runtime_values():
         'FLASK_DEBUG=0',
         'FLASK_RUN_HOST=0.0.0.0',
         'FLASK_RUN_PORT=8000',
-        'GUNICORN_WORKERS=2',
+        'GUNICORN_WORKERS=1',
+        'GUNICORN_THREADS=4',
         'EQRF_BACKUP_DIR=backups',
     ]:
         assert key in example
@@ -426,6 +437,21 @@ def test_admin_dashboard_shows_audit_log_link_and_sections(client, monkeypatch):
     for removed in ['Checklist count', 'Extract count', 'Quick Reference count', 'System posture', 'Extracts published', 'Checklists published']:
         assert removed not in html
     assert html.index('id="admin-extracts"') < html.index('id="admin-checklists"')
+
+
+def test_admin_dashboard_shows_pdf_performance_diagnostics(client, monkeypatch, isolated_content):
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+    isolated_content.publish_pdf('Large.pdf')
+    isolated_content.extracts.update({'AIR': {'__files__': [{'pdf': 'Large.pdf', 'title': 'Large'}]}})
+    client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
+
+    response = client.get('/admin')
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'PDF performance' in html
+    assert 'Total PDFs:' in html
+    assert 'Text cache:' in html
 
 
 def test_admin_edit_pages_require_login(client):
@@ -1158,6 +1184,17 @@ def test_pdf_viewer_script_handles_fit_modes_rotation_and_layout():
     assert 'visualViewport' in script
     assert 'scheduleViewerResize' in script
     assert 'scale(${viewerZoom})' not in script
+
+
+def test_pdf_viewer_script_uses_lazy_rendering_and_memory_cleanup():
+    script = (app_module.BASE_DIR / 'static' / 'script.js').read_text(encoding='utf-8')
+
+    assert 'IntersectionObserver' in script
+    assert 'PAGE_BUFFER = 2' in script
+    assert 'renderPageBuffer' in script
+    assert 'clearPagesOutsideBuffer' in script
+    assert 'clearPageCanvas' in script
+    assert 'Promise.all(pages.map' not in script
 
 
 def test_responsive_css_includes_fluid_grid_and_compact_layout_rules():

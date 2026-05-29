@@ -21,7 +21,7 @@ The app is intended for trusted local network use, not public internet exposure.
 - **Extracts**: operationally categorised PDFs from `data/extracts.json`.
 - **General Reference / Quick Reference PDFs**: uncategorised reference PDFs, including entries under `--`, root `__files__`, and qualifying legacy `MISC` entries.
 - **PDF viewer**: direct local PDF viewing through vendored PDF.js files in `static/pdfjs/`; no CDN is required.
-- **PDF controls**: 100% default zoom, Zoom +, Zoom -, Fit Width, Fit Height, Rotate, Reset, page count, and scrollable multi-page rendering.
+- **PDF controls**: 100% default zoom, lazy page rendering, Zoom +, Zoom -, Fit Width, Fit Height, Rotate, Reset, page count, and scrollable multi-page rendering.
 - **PDF search**: in-document search is available only for General Reference / Quick Reference PDFs. Categorised operational extracts do not show search controls.
 - **Responsive operational layout**: compact headers, toolbars, and fluid card grids designed for desktops, laptops, iPads, and smaller tablets.
 - **Admin panel**: upload PDFs, edit extract metadata, create/edit/delete checklists, view health warnings, view audit log, and trigger client refresh.
@@ -91,7 +91,8 @@ export EQRF_PASSWORD="your-admin-password"
 export FLASK_DEBUG=1
 export FLASK_RUN_HOST=0.0.0.0
 export FLASK_RUN_PORT=8000
-export GUNICORN_WORKERS=2
+export GUNICORN_WORKERS=1
+export GUNICORN_THREADS=4
 export EQRF_BACKUP_DIR=backups
 export EQRF_MAX_UPLOAD_MB=100
 ```
@@ -159,8 +160,10 @@ Manual command:
 
 ```bash
 source venv/bin/activate
-gunicorn -w 2 -b 0.0.0.0:8000 wsgi:application
+gunicorn --worker-class gthread --workers 1 --threads 4 --timeout 0 --bind 0.0.0.0:8000 wsgi:application
 ```
+
+This is the recommended Beelink/local-network default. A single `gthread` worker with four threads keeps the Server-Sent Events refresh stream responsive while avoiding multiple worker processes competing over local JSON files.
 
 Both WSGI names are supported:
 
@@ -270,7 +273,7 @@ Run manually:
 
 ```bash
 EQRF_SECRET_KEY="change-this" EQRF_PASSWORD_HASH="paste-generated-hash-here" \
-venv/bin/gunicorn -w 2 -b 0.0.0.0:8000 wsgi:application
+venv/bin/gunicorn --worker-class gthread --workers 1 --threads 4 --timeout 0 --bind 0.0.0.0:8000 wsgi:application
 ```
 
 Create the production environment file:
@@ -302,7 +305,7 @@ sudo nano /etc/systemd/system/eqrf.service
 The service runs:
 
 ```text
-/opt/EQRF/venv/bin/gunicorn -w 2 -b 0.0.0.0:8000 wsgi:application
+/opt/EQRF/venv/bin/gunicorn --worker-class gthread --workers 1 --threads 4 --timeout 0 --bind 0.0.0.0:8000 wsgi:application
 ```
 
 Example systemd service contents:
@@ -318,7 +321,7 @@ User=eqrf
 Group=eqrf
 WorkingDirectory=/opt/EQRF
 EnvironmentFile=/opt/EQRF/.env
-ExecStart=/opt/EQRF/venv/bin/gunicorn -w 2 -b 0.0.0.0:8000 wsgi:application
+ExecStart=/opt/EQRF/venv/bin/gunicorn --worker-class gthread --workers 1 --threads 4 --timeout 0 --bind 0.0.0.0:8000 wsgi:application
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM
@@ -552,6 +555,7 @@ The current viewer architecture uses original source PDFs directly.
 - Flask `send_from_directory(..., conditional=True)` is used so browsers can make efficient local requests.
 - Public extract validity depends on the source PDF existing and governance metadata being public.
 - Extract orientation metadata (`portrait` or `landscape`) controls the initial PDF.js display orientation. Reset View returns to that tagged orientation.
+- Large documents use lightweight page placeholders and lazy PDF.js rendering near the current iPad viewport.
 
 JPG rendering is no longer part of the runtime viewer or upload workflow.
 
@@ -570,7 +574,7 @@ In-document PDF search:
 - Does not search categorised extracts.
 - Does not search checklists.
 - Does not perform OCR.
-- Uses embedded PDF text via `pypdf` and a local JSON cache in `data/pdf_text_cache.json`.
+- Uses embedded PDF text via `pypdf` and a local JSON cache in `data/pdf_text_cache.json`, keyed by filename, file size, and modified time.
 
 Categorised extracts are displayed cleanly without search controls.
 

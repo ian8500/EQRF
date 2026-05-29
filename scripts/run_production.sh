@@ -18,9 +18,13 @@ export EQRF_PASSWORD="${EQRF_PASSWORD:-change-this}"
 export FLASK_DEBUG="${FLASK_DEBUG:-0}"
 export FLASK_RUN_HOST="${FLASK_RUN_HOST:-0.0.0.0}"
 export FLASK_RUN_PORT="${FLASK_RUN_PORT:-8000}"
-export GUNICORN_WORKERS="${GUNICORN_WORKERS:-2}"
+export GUNICORN_WORKERS="${GUNICORN_WORKERS:-1}"
+export GUNICORN_THREADS="${GUNICORN_THREADS:-4}"
 
 exec gunicorn \
+  --worker-class gthread \
   -w "$GUNICORN_WORKERS" \
+  --threads "$GUNICORN_THREADS" \
+  --timeout 0 \
   -b "${FLASK_RUN_HOST}:${FLASK_RUN_PORT}" \
   wsgi:application
