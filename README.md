@@ -38,7 +38,7 @@ The app is intended for trusted local network use, not public internet exposure.
 - Flask
 - Jinja templates
 - JSON file storage
-- Vendored PDF.js in `static/pdfjs/`
+- Pre-rendered PDF page images for public viewing
 - `pypdf` for PDF page counts and text extraction/search cache
 - Gunicorn WSGI runtime for production-style local-network serving
 - pytest
@@ -51,8 +51,8 @@ The app is intended for trusted local network use, not public internet exposure.
 app.py                  Main Flask application, routes, helpers, admin workflows.
 wsgi.py                 Production WSGI entry point for Gunicorn.
 data/                   Local JSON storage for extracts, checklists, audit log, and generated caches.
-pdfs/                   Source PDF files served to the PDF.js viewer.
-static/                 CSS, JavaScript, vendored PDF.js, images, and legacy JPG assets.
+pdfs/                   Source PDF files retained for Admin, audit, metadata, and PDF text search.
+static/                 CSS, JavaScript, rendered page images, images, and legacy JPG assets.
 static/pdfjs/           Legacy local PDF.js runtime files. Kept for compatibility/reference.
 static/rendered/        Optimised rendered PDF page images and manifests for fast iPad viewing.
 static/jpgs/            Legacy generated JPG pages. Not used by the current public PDF viewer.
@@ -557,7 +557,7 @@ The current viewer architecture is hybrid: original source PDFs are retained, wh
 - The original PDF file is still served safely through `/pdfs/<filename>` for local registered PDFs.
 - `/pdfs/<filename>` only serves registered local PDFs.
 - Flask `send_from_directory(..., conditional=True)` is used so browsers can make efficient local requests.
-- Public extract visibility depends on the source PDF existing, governance metadata being public, and rendered pages being available.
+- Public extract navigation depends on the source PDF existing and governance metadata being public. If rendered pages are missing, the viewer shows a controlled “not rendered” message and Admin can repair it.
 - Extract orientation metadata (`portrait` or `landscape`) controls the initial rendered-page display orientation. Reset View returns to that tagged orientation.
 - Large documents use image dimensions from the manifest, `loading="lazy"`, `decoding="async"`, and no base64 embedding.
 - Render settings can be adjusted with `EQRF_RENDER_DPI`, `EQRF_RENDER_QUALITY`, and `EQRF_RENDER_FORMAT`.

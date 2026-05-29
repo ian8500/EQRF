@@ -353,7 +353,7 @@ def test_env_example_documents_required_runtime_values():
         'GUNICORN_WORKERS=1',
         'GUNICORN_THREADS=4',
         'EQRF_BACKUP_DIR=backups',
-        'EQRF_RENDER_DPI=120',
+        'EQRF_RENDER_DPI=110',
         'EQRF_RENDER_QUALITY=78',
         'EQRF_RENDER_FORMAT=webp',
     ]:
@@ -489,6 +489,21 @@ def test_admin_dashboard_shows_pdf_performance_diagnostics(client, monkeypatch, 
     assert 'PDF performance' in html
     assert 'Total PDFs:' in html
     assert 'Text cache:' in html
+
+
+def test_admin_shows_needs_rendering_for_source_pdf_without_manifest(client, monkeypatch, isolated_content):
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+    isolated_content.publish_pdf('NeedsRender.pdf')
+    shutil.rmtree(rendered_dir_for_pdf('NeedsRender.pdf'))
+    isolated_content.extracts.update({'AIR': {'__files__': ['NeedsRender.pdf']}})
+    client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
+
+    html = client.get('/admin').get_data(as_text=True)
+
+    assert 'NeedsRender.pdf' in html
+    assert 'Missing rendered pages' in html
+    assert 'Render Missing PDFs' in html
+    assert 'Regenerate All Rendered PDFs' in html
 
 
 def test_admin_edit_pages_require_login(client):
@@ -633,7 +648,7 @@ def test_regenerate_rendered_pages_updates_metadata(client, monkeypatch, isolate
     )
 
     response = client.post(
-        '/admin/regenerate_pdf',
+        '/admin/render_pdf',
         data={'csrf_token': csrf_for(client), 'category': 'AIR', 'filename': 'Render.pdf'},
         follow_redirects=True,
     )
@@ -837,15 +852,15 @@ def test_rendered_page_helpers_are_safe_and_detect_ready_manifest(isolated_conte
         rendered_dir_for_pdf('../secret.pdf')
 
 
-def test_missing_rendered_pages_hide_public_extract(client, isolated_content):
+def test_missing_rendered_pages_show_public_link_and_friendly_viewer_message(client, isolated_content):
     isolated_content.publish_pdf('Unrendered.pdf')
     shutil.rmtree(rendered_dir_for_pdf('Unrendered.pdf'))
     isolated_content.extracts.update({'AIR': {'__files__': [{'pdf': 'Unrendered.pdf', 'title': 'Unrendered'}]}})
 
-    index = client.get('/extracts').get_data(as_text=True)
+    index = client.get('/extracts/AIR').get_data(as_text=True)
     viewer = client.get('/viewer/AIR/Unrendered.pdf').get_data(as_text=True)
 
-    assert 'Unrendered' not in index
+    assert 'Unrendered' in index
     assert 'has not been rendered for viewing' in viewer
 
 
@@ -869,6 +884,16 @@ def test_render_missing_pdfs_requires_admin(client):
 
     assert response.status_code == 302
     assert '/login' in response.headers['Location']
+
+
+def test_render_all_and_selected_routes_require_admin(client):
+    all_response = client.post('/admin/render_all_pdfs')
+    selected_response = client.post('/admin/render_pdf')
+
+    assert all_response.status_code == 302
+    assert selected_response.status_code == 302
+    assert '/login' in all_response.headers['Location']
+    assert '/login' in selected_response.headers['Location']
 
 
 def test_render_missing_pdfs_skips_already_rendered_and_reports_missing_source(client, monkeypatch, isolated_content):
@@ -967,7 +992,7 @@ def test_home_page_does_not_show_public_summary_or_status_panels(client):
         assert text not in html
 
 
-def test_empty_extract_folders_and_missing_rendered_assets_are_hidden(client, isolated_content):
+def test_empty_extract_folders_are_hidden_but_unrendered_source_pdfs_remain_listed(client, isolated_content):
     isolated_content.extracts.update({
         'Empty': {},
         'AIR': {'__files__': ['Missing.pdf']},
@@ -978,10 +1003,10 @@ def test_empty_extract_folders_and_missing_rendered_assets_are_hidden(client, is
     response = client.get('/extracts')
 
     assert response.status_code == 200
-    assert b'GROUND' not in response.data
+    assert b'GROUND' in response.data
     assert b'Empty' not in response.data
     assert b'Missing.pdf' not in response.data
-    assert filtered_extract_tree(isolated_content.extracts) == {}
+    assert 'GROUND' in filtered_extract_tree(isolated_content.extracts)
 
 
 def test_extracts_index_hides_general_reference_sources(client, isolated_content):
@@ -1764,6 +1789,8 @@ def test_extract_category_pages_do_not_render_duplicate_shortcut_strip(client, i
     assert response.status_code == 200
     assert 'category-nav-panel' not in html
     assert 'category-nav-list' not in html
+    assert '/static/rendered/' not in html
+    assert 'manifest.json' not in html
     assert '<strong>SID</strong>' in html
     assert '<strong>Parking</strong>' in html
 

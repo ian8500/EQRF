@@ -163,7 +163,7 @@
                         <a class="btn" href="{{ url_for('extracts_viewer', category=category.path, filename=file.filename) }}">View</a>
                       {% endif %}
                       <a class="btn" href="{{ url_for('admin_extract_edit', category=category.path, filename=file.filename) }}">Edit metadata</a>
-                      <form action="{{ url_for('regenerate_pdf') }}" method="post">
+                      <form action="{{ url_for('render_pdf') }}" method="post">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="category" value="{{ category.path }}">
                         <input type="hidden" name="filename" value="{{ file.filename }}">

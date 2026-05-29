@@ -14,5 +14,6 @@
 - Optimised the PDF viewer for iPad use with lazy rendering, canvas cleanup, Beelink Gunicorn thread defaults, and Admin PDF performance diagnostics.
 - Reintroduced server-rendered PDF page images as a hybrid iPad viewer while keeping original PDFs for search, metadata, and Admin workflows.
 - Added Admin migration actions to render missing legacy PDF pages or regenerate all rendered PDF pages.
+- Kept existing source PDFs visible during rendered-page migration and added the `/admin/render_pdf` selected-render action.
 
 Future changes should update this file when user-facing behaviour, deployment steps, data model, or admin workflows change.

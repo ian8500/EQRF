@@ -65,7 +65,7 @@ class Settings:
     port: int = field(default_factory=lambda: int(os.environ.get('FLASK_RUN_PORT', os.environ.get('PORT', '8000'))))
     max_upload_mb: int = field(default_factory=lambda: int(os.environ.get('EQRF_MAX_UPLOAD_MB', '100')))
     session_cookie_secure: bool = field(default_factory=lambda: str(os.environ.get('EQRF_SESSION_COOKIE_SECURE', '0')).strip().lower() in {'1', 'true'})
-    render_dpi: int = field(default_factory=lambda: int(os.environ.get('EQRF_RENDER_DPI', '120')))
+    render_dpi: int = field(default_factory=lambda: int(os.environ.get('EQRF_RENDER_DPI', '110')))
     render_quality: int = field(default_factory=lambda: int(os.environ.get('EQRF_RENDER_QUALITY', '78')))
     render_format: str = field(default_factory=lambda: os.environ.get('EQRF_RENDER_FORMAT', 'webp').strip().lower())
 
@@ -712,7 +712,6 @@ def extract_entry_is_valid(entry: Any) -> bool:
         filename
         and metadata_is_public(metadata)
         and local_pdf_exists(filename)
-        and rendered_pages_exist(filename)
     )
 
 
@@ -1240,6 +1239,12 @@ def rendered_manifest_path(filename: Any) -> Path:
     return rendered_dir_for_pdf(filename) / 'manifest.json'
 
 
+def save_render_manifest(filename: Any, manifest: Dict[str, Any]) -> None:
+    path = rendered_manifest_path(filename)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_json(path, manifest)
+
+
 def load_render_manifest(filename: Any) -> Optional[Dict[str, Any]]:
     try:
         manifest = _read_json(rendered_manifest_path(filename), None)
@@ -1303,6 +1308,9 @@ def render_pdf_to_images(
         from PIL import Image
     except ImportError as exc:
         raise RuntimeError('PDF rendering dependencies are not installed.') from exc
+    if extension == 'webp' and 'WEBP' not in Image.SAVE:
+        extension = 'jpg'
+        pil_format = 'JPEG'
 
     target_dir = rendered_dir_for_pdf(filename)
     RENDERED_DIR.mkdir(parents=True, exist_ok=True)
@@ -2851,9 +2859,9 @@ def delete_pdf():
     return redirect(url_for('admin_panel'))
 
 
-@app.route('/admin/regenerate_pdf', methods=['POST'])
+@app.route('/admin/render_pdf', methods=['POST'])
 @login_required
-def regenerate_pdf():
+def render_pdf():
     category = request.form.get('category') or ''
     filename = request.form.get('filename') or ''
     if not filename:
@@ -2899,6 +2907,12 @@ def regenerate_pdf():
     except (ValueError, RuntimeError) as exc:
         flash(str(exc), 'error')
     return redirect(url_for('admin_panel'))
+
+
+@app.route('/admin/regenerate_pdf', methods=['POST'])
+@login_required
+def regenerate_pdf():
+    return render_pdf()
 
 
 def _render_batch_response(force: bool) -> Any:
