@@ -94,6 +94,7 @@ export FLASK_RUN_HOST=0.0.0.0
 export FLASK_RUN_PORT=8000
 export GUNICORN_WORKERS=1
 export GUNICORN_THREADS=4
+export GUNICORN_TIMEOUT=0
 export EQRF_BACKUP_DIR=backups
 export EQRF_MAX_UPLOAD_MB=100
 ```
@@ -236,6 +237,34 @@ http://192.168.0.20:8000
 ```
 
 The production-style script binds to `0.0.0.0` by default, so other local-network devices can reach it if the Mac firewall allows incoming connections.
+
+## Beelink Performance Setup
+
+Recommended deployment for the Beelink U57 and iPads:
+
+- Keep the Beelink as the server only. Do not run Chromium/kiosk/PDF viewing on the Beelink unless there is a separate operational need.
+- Connect the Beelink to the router by wired Ethernet.
+- Put iPads on the main Wi-Fi network, not a guest Wi-Fi or client-isolated network.
+- Reserve the Beelink IP in the router and access EQRF at `http://192.168.0.172:8000`.
+- Run EQRF with Gunicorn/systemd, not the Flask development server.
+- Use the Beelink Gunicorn default: `--worker-class gthread --workers 1 --threads 4 --timeout 0`.
+- Use Admin → Render Missing PDFs after deployment, git pulls, or adding legacy PDF entries.
+- Use Admin → Regenerate All Rendered PDFs after changing `EQRF_RENDER_DPI`, `EQRF_RENDER_QUALITY`, or `EQRF_RENDER_FORMAT`.
+
+Rendered page images are the iPad performance path. Public PDF viewing uses `static/rendered/<safe_pdf_id>/` image manifests rather than asking Safari to render large source PDFs.
+
+Useful checks on the Beelink:
+
+```bash
+htop
+free -h
+journalctl -u eqrf -f
+du -h pdfs/* | sort -h | tail -20
+curl http://127.0.0.1:8000/health
+sudo systemctl restart eqrf
+```
+
+Do not reset or overwrite operational data blindly on the Beelink. Back up `data/`, `pdfs/`, and `static/rendered/` before major maintenance.
 
 ## Linux / Micro Computer Deployment
 
@@ -632,7 +661,7 @@ Important notes:
 - Never commit `.env` to GitHub.
 - Keep the server operating system patched.
 - Restrict access to the server and repository files.
-- Back up `data/`, `pdfs/`, and any legacy assets regularly.
+- Back up `data/`, `pdfs/`, `static/rendered/`, and any legacy assets regularly.
 - Use local HTTPS only if your deployment requires it and you understand certificate management for the local network.
 - Admin, upload, delete, metadata edit, trigger refresh, and audit routes require login.
 - Admin/destructive POST operations require a per-session CSRF token and are audit-logged when verification fails.
@@ -645,6 +674,7 @@ Back up at least:
 
 - `data/`
 - `pdfs/`
+- `static/rendered/`
 - `static/jpgs/` if legacy JPG assets still matter to your deployment
 
 Example backup command:
@@ -675,6 +705,17 @@ deploy/eqrf-backup.timer.example
 ```
 
 Store backups away from the EQRF server as well as locally.
+
+Future production data separation may move mutable operational content out of the Git checkout. A sensible target layout would be:
+
+```text
+/var/lib/eqrf/data
+/var/lib/eqrf/pdfs
+/var/lib/eqrf/rendered
+/var/backups/eqrf
+```
+
+That move is not required for the current deployment. For now, keep using the project-local `data/`, `pdfs/`, `static/rendered/`, and `backups/` paths and make sure they are backed up before pulling code changes.
 
 ## Tests
 

@@ -194,9 +194,25 @@ def test_production_script_uses_beelink_gthread_defaults():
 
     assert 'GUNICORN_WORKERS="${GUNICORN_WORKERS:-1}"' in script
     assert 'GUNICORN_THREADS="${GUNICORN_THREADS:-4}"' in script
+    assert 'GUNICORN_TIMEOUT="${GUNICORN_TIMEOUT:-0}"' in script
     assert '--worker-class gthread' in script
     assert '--threads "$GUNICORN_THREADS"' in script
-    assert '--timeout 0' in script
+    assert '--timeout "$GUNICORN_TIMEOUT"' in script
+
+
+def test_backup_script_includes_rendered_pages():
+    script = (app_module.BASE_DIR / 'scripts' / 'backup_eqrf.sh').read_text(encoding='utf-8')
+
+    assert 'static/rendered' in script
+
+
+def test_readme_documents_beelink_performance_setup():
+    readme = (app_module.BASE_DIR / 'README.md').read_text(encoding='utf-8')
+
+    assert 'Beelink Performance Setup' in readme
+    assert 'http://192.168.0.172:8000' in readme
+    assert '--worker-class gthread --workers 1 --threads 4 --timeout 0' in readme
+    assert 'Render Missing PDFs' in readme
 
 
 def test_max_content_length_is_configured():
@@ -352,6 +368,7 @@ def test_env_example_documents_required_runtime_values():
         'FLASK_RUN_PORT=8000',
         'GUNICORN_WORKERS=1',
         'GUNICORN_THREADS=4',
+        'GUNICORN_TIMEOUT=0',
         'EQRF_BACKUP_DIR=backups',
         'EQRF_RENDER_DPI=110',
         'EQRF_RENDER_QUALITY=78',
@@ -488,6 +505,12 @@ def test_admin_dashboard_shows_pdf_performance_diagnostics(client, monkeypatch, 
     assert response.status_code == 200
     assert 'PDF performance' in html
     assert 'Total PDFs:' in html
+    assert 'Rendered PDFs ready:' in html
+    assert 'Missing rendered pages:' in html
+    assert 'Render settings:' in html
+    assert 'Rendered directory:' in html
+    assert 'Category preload check: OK' in html
+    assert '--worker-class gthread --workers 1 --threads 4 --timeout 0' in html
     assert 'Text cache:' in html
 
 

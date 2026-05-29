@@ -41,6 +41,7 @@ BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / '.env')
 
 DATA_DIR = BASE_DIR / 'data'
+TEMPLATES_DIR = BASE_DIR / 'templates'
 PDF_DIR = BASE_DIR / 'pdfs'              # keep PDFs here (matches your zip)
 JPG_DIR = BASE_DIR / 'static' / 'jpgs'   # legacy pre-rendered pages, no longer used by the public viewer
 RENDERED_DIR = BASE_DIR / 'static' / 'rendered'
@@ -1766,10 +1767,43 @@ def _governance_summary(extract_files: List[Dict[str, Any]], checklist_paths: Li
     return summary
 
 
+def _directory_size_bytes(path: Path) -> int:
+    if not path.exists():
+        return 0
+    return sum(item.stat().st_size for item in path.rglob('*') if item.is_file())
+
+
+def _category_preload_findings() -> List[str]:
+    checks = {
+        'templates/extracts_index.html': TEMPLATES_DIR / 'extracts_index.html',
+        'templates/extracts_category.html': TEMPLATES_DIR / 'extracts_category.html',
+    }
+    disallowed = [
+        '/static/rendered/',
+        'rendered-page-image',
+        'pdf-page-stack',
+        'data-viewer-mode',
+        'viewer-search',
+        'pdfjsLib',
+        '<iframe',
+    ]
+    findings: List[str] = []
+    for label, path in checks.items():
+        try:
+            text = path.read_text(encoding='utf-8')
+        except FileNotFoundError:
+            continue
+        if any(marker in text for marker in disallowed):
+            findings.append(label)
+    return findings
+
+
 def pdf_performance_diagnostics(extract_files: List[Dict[str, Any]]) -> Dict[str, Any]:
     threshold_mb = float(os.environ.get('EQRF_LARGE_PDF_MB', '25'))
     seen: set[str] = set()
     pdfs: List[Dict[str, Any]] = []
+    rendered_ready = 0
+    missing_rendered = 0
     for item in extract_files:
         filename = item.get('filename')
         if not filename or filename in seen:
@@ -1778,6 +1812,10 @@ def pdf_performance_diagnostics(extract_files: List[Dict[str, Any]]) -> Dict[str
         pdf_path = PDF_DIR / filename
         if not pdf_path.is_file():
             continue
+        if rendered_pages_exist(filename):
+            rendered_ready += 1
+        else:
+            missing_rendered += 1
         size_bytes = pdf_path.stat().st_size
         pdfs.append({
             'filename': filename,
@@ -1786,15 +1824,28 @@ def pdf_performance_diagnostics(extract_files: List[Dict[str, Any]]) -> Dict[str
             'large': size_bytes >= threshold_mb * 1024 * 1024,
         })
 
+    settings = Settings()
+    rendered_size_bytes = _directory_size_bytes(RENDERED_DIR)
+    preload_findings = _category_preload_findings()
     pdfs.sort(key=lambda item: item['size_bytes'], reverse=True)
     return {
         'total_pdfs': len(pdfs),
         'largest_pdfs': pdfs[:5],
         'large_pdf_threshold_mb': threshold_mb,
         'large_pdf_count': len([item for item in pdfs if item['large']]),
+        'rendered_ready_count': rendered_ready,
+        'missing_rendered_count': missing_rendered,
+        'render_format': settings.render_format,
+        'render_dpi': settings.render_dpi,
+        'render_quality': settings.render_quality,
+        'rendered_dir_exists': RENDERED_DIR.exists(),
+        'rendered_dir_size_mb': round(rendered_size_bytes / (1024 * 1024), 2),
+        'category_preload_findings': preload_findings,
+        'category_preload_check': 'Review' if preload_findings else 'OK',
+        'gunicorn_recommendation': '--worker-class gthread --workers 1 --threads 4 --timeout 0',
         'text_cache_exists': PDF_TEXT_CACHE_JSON.exists(),
         'text_cache_size_kb': round(PDF_TEXT_CACHE_JSON.stat().st_size / 1024, 1) if PDF_TEXT_CACHE_JSON.exists() else 0,
-        'server_mode': 'development' if (app.debug or Settings().debug) else 'production',
+        'server_mode': 'development' if (app.debug or settings.debug) else 'production',
     }
 
 

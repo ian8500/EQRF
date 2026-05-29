@@ -15,6 +15,9 @@ paths=(data pdfs)
 if [ -d "static/jpgs" ]; then
   paths+=(static/jpgs)
 fi
+if [ -d "static/rendered" ]; then
+  paths+=(static/rendered)
+fi
 if [ -d "static/vendor" ]; then
   paths+=(static/vendor)
 fi
