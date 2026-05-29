@@ -22,6 +22,16 @@
         <p class="eyebrow">Extracts</p>
         <h3>PDF Extract Management</h3>
       </div>
+      <div class="admin-actions">
+        <form action="{{ url_for('render_missing_pdfs') }}" method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn success" type="submit">Render Missing PDFs</button>
+        </form>
+        <form action="{{ url_for('render_all_pdfs') }}" method="post" onsubmit="return confirm('Regenerate rendered pages for all registered PDFs?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn" type="submit">Regenerate All Rendered PDFs</button>
+        </form>
+      </div>
     </div>
 
     <details class="admin-details" open>
@@ -134,7 +144,7 @@
                         <span>Effective {{ file.metadata.effective_date }}</span>
                         <span>Review {{ file.metadata.review_date }}</span>
                         <span>Expiry {{ file.metadata.expiry_date }}</span>
-                        <span>Render {{ file.metadata.render_status }}</span>
+                        <span>Render {{ file.render_status_label }}</span>
                         <span>Updated {{ file.metadata.last_updated }}</span>
                       </div>
                       <div class="status-chip-row">

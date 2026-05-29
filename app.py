@@ -650,6 +650,16 @@ def flatten_extract_categories(extracts: Any) -> List[Dict[str, Any]]:
             })
 
     if isinstance(extracts, dict):
+        root_files = _list_file_entries_in_node(extracts)
+        if root_files:
+            categories.append({
+                'path': '--',
+                'node': extracts,
+                'files': root_files,
+                'file_count': len([entry for entry in root_files if file_entry_name(entry)]),
+                'subcategory_count': 0,
+                'empty': False,
+            })
         for key, value in extracts.items():
             if key == '__files__':
                 continue
@@ -910,6 +920,28 @@ def find_missing_rendered_pages(extracts: Any) -> List[Dict[str, Any]]:
         item for item in flatten_extract_files(extracts)
         if item.get('pdf_exists') and not rendered_pages_exist(item['filename'])
     ]
+
+
+def render_status_for_entry(entry: Any) -> str:
+    filename = file_entry_name(entry)
+    metadata = normalise_file_entry(entry)
+    if not filename or not local_pdf_exists(filename):
+        return 'source_missing'
+    if rendered_pages_exist(filename):
+        return 'ready'
+    if metadata.get('render_status') == 'failed':
+        return 'failed'
+    return 'missing'
+
+
+def render_status_label(status: str) -> str:
+    labels = {
+        'ready': 'Ready',
+        'missing': 'Missing rendered pages',
+        'failed': 'Failed',
+        'source_missing': 'Source PDF missing',
+    }
+    return labels.get(status, 'Missing rendered pages')
 
 
 def find_orphan_jpgs(extracts: Any, jpg_dir: Path = JPG_DIR) -> List[str]:
@@ -1313,6 +1345,104 @@ def render_pdf_to_images(
         return manifest
 
 
+def _update_render_metadata_for_pdf(extracts: MutableMapping[str, Any], filename: str, metadata: Dict[str, Any]) -> int:
+    updated = 0
+
+    def update_entry(entry: Any) -> Any:
+        nonlocal updated
+        if file_entry_name(entry) != filename:
+            return entry
+        item = normalise_file_entry(entry)
+        item.update(metadata)
+        item['pdf'] = filename
+        item['title'] = item.get('title') or _pdf_base(filename)
+        updated += 1
+        return item
+
+    def visit(node: Any) -> Any:
+        if isinstance(node, list):
+            return [update_entry(entry) for entry in node]
+        if isinstance(node, dict):
+            if isinstance(node.get('__files__'), list):
+                node['__files__'] = [update_entry(entry) for entry in node['__files__']]
+            for key, value in list(node.items()):
+                if key == '__files__':
+                    continue
+                node[key] = visit(value)
+        return node
+
+    visit(extracts)
+    return updated
+
+
+def _render_manifest_metadata(filename: str, manifest: Dict[str, Any]) -> Dict[str, Any]:
+    page_count = int(manifest.get('page_count') or 0) or get_pdf_page_count(filename)
+    return {
+        'page_count': page_count,
+        'render_status': 'ready',
+        'render_format': manifest.get('format', ''),
+        'rendered_at': manifest.get('rendered_at', _utc_timestamp()),
+        'last_updated': _utc_timestamp(),
+    }
+
+
+def render_registered_pdfs(extracts: MutableMapping[str, Any], force: bool = False) -> Dict[str, Any]:
+    summary = {
+        'rendered': 0,
+        'skipped': 0,
+        'failed': 0,
+        'failures': [],
+    }
+    files = flatten_extract_files(extracts)
+    by_filename: Dict[str, List[Dict[str, Any]]] = {}
+    for item in files:
+        by_filename.setdefault(item['filename'], []).append(item)
+
+    for filename, registrations in sorted(by_filename.items()):
+        categories = [item['category'] for item in registrations]
+        target_path = f"{', '.join(categories)} / {filename}"
+        if not local_pdf_exists(filename):
+            summary['failed'] += 1
+            summary['failures'].append({'filename': filename, 'reason': 'Source PDF missing', 'categories': categories})
+            append_audit_log(
+                'render_pdf_failed',
+                'extract',
+                target_path,
+                f'Render skipped for {filename}: source PDF missing',
+            )
+            continue
+        if not force and rendered_pages_exist(filename):
+            summary['skipped'] += 1
+            continue
+        try:
+            manifest = render_pdf_to_images(filename)
+            metadata = _render_manifest_metadata(filename, manifest)
+            _update_render_metadata_for_pdf(extracts, filename, metadata)
+            summary['rendered'] += 1
+            append_audit_log(
+                'render_pdf',
+                'extract',
+                target_path,
+                f"Rendered {filename}",
+                {'page_count': metadata['page_count'], 'format': metadata.get('render_format', '')},
+            )
+        except Exception as exc:
+            summary['failed'] += 1
+            summary['failures'].append({'filename': filename, 'reason': str(exc), 'categories': categories})
+            _update_render_metadata_for_pdf(extracts, filename, {
+                'render_status': 'failed',
+                'last_updated': _utc_timestamp(),
+            })
+            append_audit_log(
+                'render_pdf_failed',
+                'extract',
+                target_path,
+                f'Render failed for {filename}: {exc}',
+            )
+
+    return summary
+
+
 def get_pdf_page_count(filename: str) -> int:
     try:
         filename = _safe_pdf_filename(filename)
@@ -1714,14 +1844,20 @@ def _admin_context() -> Dict[str, Any]:
             elif not local_pdf_exists(filename):
                 visibility_label = 'Hidden: missing PDF'
                 visibility_state = 'missing-pdf'
+            elif not rendered_pages_exist(filename):
+                visibility_label = 'Hidden: missing rendered pages'
+                visibility_state = 'missing-rendered'
             else:
                 visibility_label = 'Hidden: invalid metadata'
                 visibility_state = 'hidden'
             file_issues = lookup.get((category['path'], filename), [])
+            render_status = render_status_for_entry(entry)
             files.append({
                 'filename': filename,
                 'title': item.get('title') or _pdf_base(filename),
                 'metadata': item,
+                'render_status': render_status,
+                'render_status_label': render_status_label(render_status),
                 'status_label': metadata_status_label(item),
                 'status_state': metadata_status_state(item),
                 'jpgs': file_entry_jpgs(entry),
@@ -2043,13 +2179,23 @@ def _registered_extract_entry(category: str, filename: str) -> Optional[Any]:
     return _find_file_entry(node, filename)
 
 
-def _unavailable(title: str, message: str, back_label: str, back_endpoint: str, status: int = 404):
+def _unavailable(
+    title: str,
+    message: str,
+    back_label: str,
+    back_endpoint: str,
+    status: int = 404,
+    render_category: str = '',
+    render_filename: str = '',
+):
     return render_template(
         'unavailable.html',
         title=title,
         message=message,
         back_label=back_label,
         back_url=url_for(back_endpoint),
+        render_category=render_category,
+        render_filename=render_filename,
     ), status
 
 
@@ -2387,7 +2533,14 @@ def extracts_viewer(category, filename):
     if not pdf_path.exists():
         return _unavailable('Extract unavailable', 'The local source PDF is missing and must be repaired in Admin.', 'Back to Extracts', 'extracts_index')
     if not rendered_pages_exist(filename):
-        return _unavailable('Extract unavailable', 'This extract has not been rendered for viewing. Please contact Admin.', 'Back to Extracts', 'extracts_index')
+        return _unavailable(
+            'Extract unavailable',
+            'This extract has not been rendered for viewing. Please contact Admin.',
+            'Back to Extracts',
+            'extracts_index',
+            render_category=normalised_category,
+            render_filename=filename,
+        )
 
     rendered_pages = get_rendered_pages(filename)
     manifest = load_render_manifest(filename) or {}
@@ -2712,6 +2865,11 @@ def regenerate_pdf():
         extracts = _json_clone(get_extracts())
         node = _get_node_for_path(extracts, safe_path_parts(category))
         entry = _find_file_entry(node, filename) if node is not None else None
+        if category == '--' and entry is None:
+            root_entry = _find_file_entry(extracts, filename)
+            if root_entry is not None:
+                node = extracts
+                entry = root_entry
         if entry is None:
             raise ValueError('File not found in category.')
         pdf_path = PDF_DIR / filename
@@ -2741,6 +2899,36 @@ def regenerate_pdf():
     except (ValueError, RuntimeError) as exc:
         flash(str(exc), 'error')
     return redirect(url_for('admin_panel'))
+
+
+def _render_batch_response(force: bool) -> Any:
+    extracts = _json_clone(get_extracts())
+    summary = render_registered_pdfs(extracts, force=force)
+    save_extracts(extracts)
+    trigger_client_refresh()
+    action = 'regenerate_all_rendered_pages' if force else 'render_missing_pdfs'
+    append_audit_log(
+        action,
+        'extract',
+        'all',
+        f"{summary['rendered']} rendered, {summary['skipped']} skipped, {summary['failed']} failed",
+        summary,
+    )
+    category = 'success' if summary['failed'] == 0 else 'warning'
+    flash(f"{summary['rendered']} rendered, {summary['skipped']} skipped, {summary['failed']} failed", category)
+    return redirect(url_for('admin_panel'))
+
+
+@app.route('/admin/render_missing_pdfs', methods=['POST'])
+@login_required
+def render_missing_pdfs():
+    return _render_batch_response(force=False)
+
+
+@app.route('/admin/render_all_pdfs', methods=['POST'])
+@login_required
+def render_all_pdfs():
+    return _render_batch_response(force=True)
 
 
 @app.route('/admin/delete_category', methods=['POST'])

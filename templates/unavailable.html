@@ -10,6 +10,14 @@
     <div class="admin-actions">
       <a class="btn" href="{{ back_url }}">{{ back_label }}</a>
       {% if session.get("is_admin") %}
+        {% if render_filename %}
+          <form action="{{ url_for('regenerate_pdf') }}" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="category" value="{{ render_category }}">
+            <input type="hidden" name="filename" value="{{ render_filename }}">
+            <button class="btn success" type="submit">Render This PDF</button>
+          </form>
+        {% endif %}
         <a class="btn success" href="{{ url_for('admin_panel') }}">Open Admin</a>
       {% endif %}
     </div>

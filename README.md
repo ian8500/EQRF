@@ -399,6 +399,8 @@ Admin capabilities:
 
 - Upload PDF extracts.
 - Choose an existing category, type a new category path, or store as General Reference.
+- Render missing PDF page images for existing registered content.
+- Regenerate all rendered PDF page images after changing render settings or migrating older data.
 - Edit extract metadata.
 - Create, edit, preview, and delete checklists.
 - View registered extract and checklist trees.
@@ -560,7 +562,14 @@ The current viewer architecture is hybrid: original source PDFs are retained, wh
 - Large documents use image dimensions from the manifest, `loading="lazy"`, `decoding="async"`, and no base64 embedding.
 - Render settings can be adjusted with `EQRF_RENDER_DPI`, `EQRF_RENDER_QUALITY`, and `EQRF_RENDER_FORMAT`.
 
-Rendered pages are created during Admin upload or by using the Admin “Regenerate Rendered Pages” action. Public viewer requests do not render PDFs.
+Rendered pages are created during Admin upload. Existing or legacy registrations can be backfilled from Admin with “Render Missing PDFs”, and all registered PDFs can be forcibly refreshed with “Regenerate All Rendered PDFs”. Public viewer requests do not render PDFs.
+
+Existing extract entries remain backwards compatible. Legacy string entries, old dict entries with `jpgs`, and entries without `render_status` still appear in Admin. Admin calculates render status from the current source PDF and rendered manifest:
+
+- Ready
+- Missing rendered pages
+- Failed
+- Source PDF missing
 
 Legacy JPG files may still exist in:
 

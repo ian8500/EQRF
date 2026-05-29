@@ -42,6 +42,7 @@ from app import (
     get_general_reference_entries,
     get_cached_pdf_text_pages,
     load_render_manifest,
+    render_status_for_entry,
     search_pdf_text,
     safe_path_parts,
     Settings,
@@ -846,6 +847,67 @@ def test_missing_rendered_pages_hide_public_extract(client, isolated_content):
 
     assert 'Unrendered' not in index
     assert 'has not been rendered for viewing' in viewer
+
+
+def test_legacy_string_extract_needs_render_when_manifest_missing(isolated_content):
+    isolated_content.publish_pdf('Legacy.pdf')
+    shutil.rmtree(rendered_dir_for_pdf('Legacy.pdf'))
+
+    assert render_status_for_entry('Legacy.pdf') == 'missing'
+
+
+def test_legacy_jpg_extract_needs_render_when_manifest_missing(isolated_content):
+    isolated_content.publish_pdf('LegacyJpg.pdf')
+    shutil.rmtree(rendered_dir_for_pdf('LegacyJpg.pdf'))
+    entry = {'pdf': 'LegacyJpg.pdf', 'jpgs': ['LegacyJpg_page1.jpg'], 'render_status': 'ready'}
+
+    assert render_status_for_entry(entry) == 'missing'
+
+
+def test_render_missing_pdfs_requires_admin(client):
+    response = client.post('/admin/render_missing_pdfs')
+
+    assert response.status_code == 302
+    assert '/login' in response.headers['Location']
+
+
+def test_render_missing_pdfs_skips_already_rendered_and_reports_missing_source(client, monkeypatch, isolated_content):
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+    isolated_content.publish_pdf('Ready.pdf')
+    isolated_content.extracts.update({
+        'AIR': {
+            '__files__': [
+                'Ready.pdf',
+                {'pdf': 'MissingSource.pdf', 'title': 'Missing Source'},
+            ]
+        }
+    })
+    client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
+
+    calls = []
+    monkeypatch.setattr(app_module, 'render_pdf_to_images', lambda filename: calls.append(filename) or {
+        'format': 'webp',
+        'page_count': 1,
+        'rendered_at': '2026-05-29T12:00:00Z',
+        'pages': [],
+    })
+    monkeypatch.setattr(
+        app_module,
+        'save_extracts',
+        lambda extracts: isolated_content.extracts.clear() or isolated_content.extracts.update(extracts),
+    )
+
+    response = client.post(
+        '/admin/render_missing_pdfs',
+        data={'csrf_token': csrf_for(client)},
+        follow_redirects=True,
+    )
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert calls == []
+    assert '0 rendered, 1 skipped, 1 failed' in html
+    assert 'Source PDF missing' in html
 
 
 def test_empty_checklist_folders_are_not_shown(client, isolated_content):
