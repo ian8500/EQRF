@@ -290,6 +290,8 @@
           <ul class="health-list">
             <li>Server mode: {{ health.performance.server_mode }}</li>
             <li>Beelink Gunicorn: {{ health.performance.gunicorn_recommendation }}</li>
+            <li>Configured Gunicorn: workers {{ health.performance.configured_workers }}, threads {{ health.performance.configured_threads }}, timeout {{ health.performance.configured_timeout }}</li>
+            <li>Refresh mode: {{ health.performance.refresh_mode }}{% if health.performance.refresh_mode == 'polling' %} · {{ health.performance.refresh_poll_seconds }}s poll{% endif %}</li>
             <li>Total PDFs: {{ health.performance.total_pdfs }}</li>
             <li>Rendered PDFs ready: {{ health.performance.rendered_ready_count }}</li>
             <li>Missing rendered pages: {{ health.performance.missing_rendered_count }}</li>
@@ -300,6 +302,13 @@
             <li>Large PDFs: {{ health.performance.large_pdf_count }}</li>
             <li>Text cache: {{ 'Present' if health.performance.text_cache_exists else 'Not built' }}{% if health.performance.text_cache_exists %} · {{ health.performance.text_cache_size_kb }} KB{% endif %}</li>
           </ul>
+          {% if health.performance.runtime_warnings %}
+            <ul class="health-list warning">
+              {% for warning in health.performance.runtime_warnings %}
+                <li>{{ warning }}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
           {% if health.performance.largest_pdfs %}
             <ul class="health-list">
               {% for pdf in health.performance.largest_pdfs %}

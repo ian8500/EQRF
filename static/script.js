@@ -95,30 +95,70 @@ function saveChecklistState() {
   }
   
   
-  // === SERVER-SENT EVENTS (SSE) FOR REFRESH ===
-  if (typeof EventSource !== "undefined") {
-    const evtSource = new EventSource("/stream");
-    evtSource.addEventListener("refresh", async () => {
-      const current = window.location.pathname + window.location.search;
-      try {
-        const response = await fetch("/resolve-refresh-target?current=" + encodeURIComponent(current), {
-          credentials: "same-origin"
-        });
-        if (response.ok) {
-          const data = await response.json();
-          if (data && data.target && typeof data.target === "string") {
-            if (data.target === current || data.target === window.location.pathname) {
-              window.location.reload();
-            } else {
-              window.location.href = data.target;
-            }
-            return;
+  // === CLIENT REFRESH: POLLING BY DEFAULT, SSE COMPATIBLE ===
+  async function refreshCurrentPageSafely() {
+    const current = window.location.pathname + window.location.search;
+    try {
+      const response = await fetch("/resolve-refresh-target?current=" + encodeURIComponent(current), {
+        credentials: "same-origin"
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.target && typeof data.target === "string") {
+          if (data.target === current || data.target === window.location.pathname) {
+            window.location.reload();
+          } else {
+            window.location.href = data.target;
           }
+          return;
         }
-      } catch (_) { /* fall back to normal reload */ }
-      window.location.reload();
-    });
+      }
+    } catch (_) { /* fall back to normal reload */ }
+    window.location.reload();
   }
+
+  function startSseRefresh() {
+    if (typeof EventSource === "undefined") return false;
+    const evtSource = new EventSource("/stream");
+    evtSource.addEventListener("refresh", refreshCurrentPageSafely);
+    return true;
+  }
+
+  async function startPollingRefresh(initialState) {
+    let currentVersion = Number(initialState?.version || 0);
+    const pollInterval = Math.max(Number(initialState?.poll_interval_ms || 12000), 10000);
+    window.setInterval(async () => {
+      try {
+        const response = await fetch("/refresh-state", {
+          credentials: "same-origin",
+          cache: "no-store"
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        const nextVersion = Number(data.version || 0);
+        if (nextVersion > currentVersion) {
+          currentVersion = nextVersion;
+          await refreshCurrentPageSafely();
+        } else {
+          currentVersion = nextVersion;
+        }
+      } catch (_) { /* stay quiet on transient Wi-Fi drops */ }
+    }, pollInterval);
+  }
+
+  (async function setupRefreshClient() {
+    try {
+      const response = await fetch("/refresh-state", {
+        credentials: "same-origin",
+        cache: "no-store"
+      });
+      const state = response.ok ? await response.json() : { mode: "polling", version: 0 };
+      if (state.mode === "sse" && startSseRefresh()) return;
+      startPollingRefresh(state);
+    } catch (_) {
+      startPollingRefresh({ version: 0, poll_interval_ms: 12000 });
+    }
+  })();
 
 
   // === PDF VIEWER CONTROLS ===

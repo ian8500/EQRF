@@ -16,5 +16,6 @@
 - Added Admin migration actions to render missing legacy PDF pages or regenerate all rendered PDF pages.
 - Kept existing source PDFs visible during rendered-page migration and added the `/admin/render_pdf` selected-render action.
 - Added Beelink/iPad performance diagnostics, gthread timeout configuration, rendered-page backup coverage, and deployment guidance.
+- Increased Beelink Gunicorn thread guidance to 24 and added polling-based client refresh to avoid long-lived SSE connections starving iPad requests.
 
 Future changes should update this file when user-facing behaviour, deployment steps, data model, or admin workflows change.

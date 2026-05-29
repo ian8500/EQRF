@@ -30,7 +30,7 @@ The app is intended for trusted local network use, not public internet exposure.
 - **Production service runtime**: Gunicorn WSGI entry point, systemd service example, health check, backup scripts, and restart-after-crash service model.
 - **Day/night mode**: localStorage-backed UI theme toggle across pages.
 - **Local network use**: runs on a Mac, Raspberry Pi, mini PC, or other local server for iPads and desktops on the same network.
-- **Client refresh behaviour**: Admin can trigger connected clients to refresh. Clients try to stay on the same page, or fall back to the nearest valid parent route.
+- **Client refresh behaviour**: Admin can trigger connected clients to refresh. Production defaults to short polling through `/refresh-state`; the legacy `/stream` SSE endpoint remains available if explicitly enabled.
 
 ## Technology Stack
 
@@ -93,8 +93,10 @@ export FLASK_DEBUG=1
 export FLASK_RUN_HOST=0.0.0.0
 export FLASK_RUN_PORT=8000
 export GUNICORN_WORKERS=1
-export GUNICORN_THREADS=4
+export GUNICORN_THREADS=24
 export GUNICORN_TIMEOUT=0
+export EQRF_REFRESH_MODE=polling
+export EQRF_REFRESH_POLL_SECONDS=12
 export EQRF_BACKUP_DIR=backups
 export EQRF_MAX_UPLOAD_MB=100
 ```
@@ -162,10 +164,10 @@ Manual command:
 
 ```bash
 source venv/bin/activate
-gunicorn --worker-class gthread --workers 1 --threads 4 --timeout 0 --bind 0.0.0.0:8000 wsgi:application
+gunicorn --worker-class gthread --workers 1 --threads 24 --timeout 0 --bind 0.0.0.0:8000 wsgi:application
 ```
 
-This is the recommended Beelink/local-network default. A single `gthread` worker with four threads keeps the Server-Sent Events refresh stream responsive while avoiding multiple worker processes competing over local JSON files.
+This is the recommended Beelink/local-network default. A single `gthread` worker keeps in-memory refresh state reliable, and 24 threads prevent multiple connected iPads from starving normal page requests. EQRF now defaults to short polling for client refresh, but `/stream` Server-Sent Events remains available for compatibility if `EQRF_REFRESH_MODE=sse` is explicitly set.
 
 Both WSGI names are supported:
 
@@ -247,7 +249,8 @@ Recommended deployment for the Beelink U57 and iPads:
 - Put iPads on the main Wi-Fi network, not a guest Wi-Fi or client-isolated network.
 - Reserve the Beelink IP in the router and access EQRF at `http://192.168.0.172:8000`.
 - Run EQRF with Gunicorn/systemd, not the Flask development server.
-- Use the Beelink Gunicorn default: `--worker-class gthread --workers 1 --threads 4 --timeout 0`.
+- Use the Beelink Gunicorn default: `--worker-class gthread --workers 1 --threads 24 --timeout 0`.
+- Keep `EQRF_REFRESH_MODE=polling` unless you specifically need the legacy `/stream` Server-Sent Events mode.
 - Use Admin → Render Missing PDFs after deployment, git pulls, or adding legacy PDF entries.
 - Use Admin → Regenerate All Rendered PDFs after changing `EQRF_RENDER_DPI`, `EQRF_RENDER_QUALITY`, or `EQRF_RENDER_FORMAT`.
 
@@ -303,7 +306,7 @@ Run manually:
 
 ```bash
 EQRF_SECRET_KEY="change-this" EQRF_PASSWORD_HASH="paste-generated-hash-here" \
-venv/bin/gunicorn --worker-class gthread --workers 1 --threads 4 --timeout 0 --bind 0.0.0.0:8000 wsgi:application
+venv/bin/gunicorn --worker-class gthread --workers 1 --threads 24 --timeout 0 --bind 0.0.0.0:8000 wsgi:application
 ```
 
 Create the production environment file:
@@ -335,7 +338,7 @@ sudo nano /etc/systemd/system/eqrf.service
 The service runs:
 
 ```text
-/opt/EQRF/venv/bin/gunicorn --worker-class gthread --workers 1 --threads 4 --timeout 0 --bind 0.0.0.0:8000 wsgi:application
+/opt/EQRF/venv/bin/gunicorn --worker-class gthread --workers 1 --threads 24 --timeout 0 --bind 0.0.0.0:8000 wsgi:application
 ```
 
 Example systemd service contents:
@@ -351,7 +354,7 @@ User=eqrf
 Group=eqrf
 WorkingDirectory=/opt/EQRF
 EnvironmentFile=/opt/EQRF/.env
-ExecStart=/opt/EQRF/venv/bin/gunicorn --worker-class gthread --workers 1 --threads 4 --timeout 0 --bind 0.0.0.0:8000 wsgi:application
+ExecStart=/opt/EQRF/venv/bin/gunicorn --worker-class gthread --workers 1 --threads 24 --timeout 0 --bind 0.0.0.0:8000 wsgi:application
 Restart=always
 RestartSec=5
 KillSignal=SIGTERM

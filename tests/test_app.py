@@ -43,6 +43,7 @@ from app import (
     get_cached_pdf_text_pages,
     load_render_manifest,
     render_status_for_entry,
+    runtime_performance_warnings,
     search_pdf_text,
     safe_path_parts,
     Settings,
@@ -183,7 +184,7 @@ def test_systemd_service_uses_managed_hardened_runtime():
     service = (app_module.BASE_DIR / 'deploy' / 'eqrf.service.example').read_text(encoding='utf-8')
 
     assert 'EnvironmentFile=/opt/EQRF/.env' in service
-    assert 'ExecStart=/opt/EQRF/venv/bin/gunicorn --worker-class gthread --workers 1 --threads 4 --timeout 0 --bind 0.0.0.0:8000 wsgi:application' in service
+    assert 'ExecStart=/opt/EQRF/venv/bin/gunicorn --worker-class gthread --workers 1 --threads 24 --timeout 0 --bind 0.0.0.0:8000 wsgi:application' in service
     assert 'Restart=always' in service
     assert 'NoNewPrivileges=true' in service
     assert 'ReadWritePaths=/opt/EQRF/data /opt/EQRF/pdfs /opt/EQRF/static /opt/EQRF/backups' in service
@@ -193,7 +194,7 @@ def test_production_script_uses_beelink_gthread_defaults():
     script = (app_module.BASE_DIR / 'scripts' / 'run_production.sh').read_text(encoding='utf-8')
 
     assert 'GUNICORN_WORKERS="${GUNICORN_WORKERS:-1}"' in script
-    assert 'GUNICORN_THREADS="${GUNICORN_THREADS:-4}"' in script
+    assert 'GUNICORN_THREADS="${GUNICORN_THREADS:-24}"' in script
     assert 'GUNICORN_TIMEOUT="${GUNICORN_TIMEOUT:-0}"' in script
     assert '--worker-class gthread' in script
     assert '--threads "$GUNICORN_THREADS"' in script
@@ -211,7 +212,8 @@ def test_readme_documents_beelink_performance_setup():
 
     assert 'Beelink Performance Setup' in readme
     assert 'http://192.168.0.172:8000' in readme
-    assert '--worker-class gthread --workers 1 --threads 4 --timeout 0' in readme
+    assert '--worker-class gthread --workers 1 --threads 24 --timeout 0' in readme
+    assert 'EQRF_REFRESH_MODE=polling' in readme
     assert 'Render Missing PDFs' in readme
 
 
@@ -367,8 +369,10 @@ def test_env_example_documents_required_runtime_values():
         'FLASK_RUN_HOST=0.0.0.0',
         'FLASK_RUN_PORT=8000',
         'GUNICORN_WORKERS=1',
-        'GUNICORN_THREADS=4',
+        'GUNICORN_THREADS=24',
         'GUNICORN_TIMEOUT=0',
+        'EQRF_REFRESH_MODE=polling',
+        'EQRF_REFRESH_POLL_SECONDS=12',
         'EQRF_BACKUP_DIR=backups',
         'EQRF_RENDER_DPI=110',
         'EQRF_RENDER_QUALITY=78',
@@ -510,8 +514,17 @@ def test_admin_dashboard_shows_pdf_performance_diagnostics(client, monkeypatch, 
     assert 'Render settings:' in html
     assert 'Rendered directory:' in html
     assert 'Category preload check: OK' in html
-    assert '--worker-class gthread --workers 1 --threads 4 --timeout 0' in html
+    assert '--worker-class gthread --workers 1 --threads 24 --timeout 0' in html
+    assert 'Refresh mode:' in html
     assert 'Text cache:' in html
+
+
+def test_runtime_performance_warning_detects_low_thread_count(monkeypatch):
+    monkeypatch.setenv('GUNICORN_THREADS', '4')
+
+    warnings = runtime_performance_warnings()
+
+    assert any('GUNICORN_THREADS' in warning for warning in warnings)
 
 
 def test_admin_shows_needs_rendering_for_source_pdf_without_manifest(client, monkeypatch, isolated_content):
@@ -640,6 +653,38 @@ def test_trigger_refresh_json_response_for_api_clients(client, monkeypatch):
 
     assert response.status_code == 200
     assert response.get_json() == {'ok': True}
+
+
+def test_refresh_state_endpoint_reports_polling_mode_and_version(client, monkeypatch):
+    monkeypatch.setenv('EQRF_REFRESH_MODE', 'polling')
+    response = client.get('/refresh-state')
+    data = response.get_json()
+
+    assert response.status_code == 200
+    assert data['mode'] == 'polling'
+    assert isinstance(data['version'], int)
+    assert data['poll_interval_ms'] >= 10000
+
+
+def test_trigger_refresh_increments_refresh_state(client, monkeypatch):
+    monkeypatch.setenv('EQRF_PASSWORD', 'test-pass')
+    before = client.get('/refresh-state').get_json()['version']
+    client.post('/login', data={'password': 'test-pass', 'next': '/admin'})
+
+    response = client.post('/trigger-refresh', data={'csrf_token': csrf_for(client)})
+    after = client.get('/refresh-state').get_json()['version']
+
+    assert response.status_code == 302
+    assert after > before
+
+
+def test_stream_route_remains_event_stream(client):
+    response = client.get('/stream', buffered=False)
+    try:
+        assert response.status_code == 200
+        assert response.mimetype == 'text/event-stream'
+    finally:
+        response.close()
 
 
 def test_admin_post_without_csrf_is_blocked_and_audited(client, monkeypatch):
@@ -1749,12 +1794,22 @@ def test_day_night_toggle_js_uses_localstorage():
 
 def test_refresh_js_resolves_target_without_home_redirect():
     script = (app_module.BASE_DIR / 'static' / 'script.js').read_text(encoding='utf-8')
-    refresh_block = script[script.index('addEventListener("refresh"'):]
 
-    assert '/resolve-refresh-target' in refresh_block
-    assert 'encodeURIComponent(current)' in refresh_block
-    assert 'window.location.href = data.target' in refresh_block
-    assert 'window.location.href = "/"' not in refresh_block
+    assert '/resolve-refresh-target' in script
+    assert 'encodeURIComponent(current)' in script
+    assert 'window.location.href = data.target' in script
+    assert 'window.location.href = "/"' not in script
+
+
+def test_refresh_js_uses_polling_state_and_keeps_sse_compatibility():
+    script = (app_module.BASE_DIR / 'static' / 'script.js').read_text(encoding='utf-8')
+
+    assert '/refresh-state' in script
+    assert 'startPollingRefresh' in script
+    assert 'setInterval' in script
+    assert 'poll_interval_ms' in script
+    assert 'new EventSource("/stream")' in script
+    assert 'addEventListener("refresh"' in script
 
 
 def test_public_pages_contain_no_emoji_icons(client):
@@ -1829,6 +1884,19 @@ def test_checklist_category_pages_do_not_render_duplicate_shortcut_strip(client,
     assert 'category-nav-list' not in html
     assert '<strong>GMC</strong>' in html
     assert '<strong>ADC</strong>' in html
+
+
+def test_public_checklist_pages_do_not_include_pdf_or_admin_payloads(client, isolated_content):
+    isolated_content.checklists.update({'Tower': {'GMC': {'Runway': ['Line up']}}})
+
+    html = client.get('/checklists/Tower/GMC/Runway').get_data(as_text=True)
+
+    assert '/static/rendered/' not in html
+    assert 'manifest.json' not in html
+    assert '/viewer-search' not in html
+    assert 'audit_log' not in html
+    assert 'rendered-page-image' not in html
+    assert 'pdf-viewer-shell' not in html
 
 
 def test_viewer_pages_do_not_render_duplicate_shortcut_strip(client, isolated_content):

@@ -69,6 +69,8 @@ class Settings:
     render_dpi: int = field(default_factory=lambda: int(os.environ.get('EQRF_RENDER_DPI', '110')))
     render_quality: int = field(default_factory=lambda: int(os.environ.get('EQRF_RENDER_QUALITY', '78')))
     render_format: str = field(default_factory=lambda: os.environ.get('EQRF_RENDER_FORMAT', 'webp').strip().lower())
+    refresh_mode: str = field(default_factory=lambda: os.environ.get('EQRF_REFRESH_MODE', 'polling').strip().lower())
+    refresh_poll_seconds: int = field(default_factory=lambda: int(os.environ.get('EQRF_REFRESH_POLL_SECONDS', '12')))
 
 
 SETTINGS = Settings()
@@ -163,6 +165,11 @@ def enforce_admin_csrf():
 active_users = 0
 user_lock = Lock()
 refresh_event = Event()
+refresh_lock = Lock()
+refresh_state = {
+    'version': 0,
+    'updated_at': '',
+}
 login_lock = Lock()
 login_attempts: Dict[str, Dict[str, Any]] = {}
 
@@ -1798,6 +1805,32 @@ def _category_preload_findings() -> List[str]:
     return findings
 
 
+def runtime_performance_warnings(settings: Optional[Settings] = None) -> List[str]:
+    settings = settings or Settings()
+    warnings: List[str] = []
+    threads = os.environ.get('GUNICORN_THREADS')
+    workers = os.environ.get('GUNICORN_WORKERS')
+    timeout = os.environ.get('GUNICORN_TIMEOUT')
+
+    if threads:
+        try:
+            if int(threads) < 24:
+                warnings.append('GUNICORN_THREADS is below the Beelink recommendation of 24.')
+        except ValueError:
+            warnings.append('GUNICORN_THREADS is not a valid integer.')
+    if workers and workers != '1':
+        warnings.append('GUNICORN_WORKERS should be 1 so in-memory refresh state remains reliable.')
+    if timeout and timeout != '0':
+        warnings.append('GUNICORN_TIMEOUT should be 0 for long-running refresh connections and large render operations.')
+    if settings.refresh_mode == 'sse' and threads:
+        try:
+            if int(threads) < 24:
+                warnings.append('/stream SSE mode uses long-lived connections; use 24+ threads or EQRF_REFRESH_MODE=polling.')
+        except ValueError:
+            pass
+    return warnings
+
+
 def pdf_performance_diagnostics(extract_files: List[Dict[str, Any]]) -> Dict[str, Any]:
     threshold_mb = float(os.environ.get('EQRF_LARGE_PDF_MB', '25'))
     seen: set[str] = set()
@@ -1842,7 +1875,13 @@ def pdf_performance_diagnostics(extract_files: List[Dict[str, Any]]) -> Dict[str
         'rendered_dir_size_mb': round(rendered_size_bytes / (1024 * 1024), 2),
         'category_preload_findings': preload_findings,
         'category_preload_check': 'Review' if preload_findings else 'OK',
-        'gunicorn_recommendation': '--worker-class gthread --workers 1 --threads 4 --timeout 0',
+        'gunicorn_recommendation': '--worker-class gthread --workers 1 --threads 24 --timeout 0',
+        'configured_workers': os.environ.get('GUNICORN_WORKERS', 'not set'),
+        'configured_threads': os.environ.get('GUNICORN_THREADS', 'not set'),
+        'configured_timeout': os.environ.get('GUNICORN_TIMEOUT', 'not set'),
+        'refresh_mode': settings.refresh_mode if settings.refresh_mode in {'polling', 'sse'} else 'polling',
+        'refresh_poll_seconds': settings.refresh_poll_seconds,
+        'runtime_warnings': runtime_performance_warnings(settings),
         'text_cache_exists': PDF_TEXT_CACHE_JSON.exists(),
         'text_cache_size_kb': round(PDF_TEXT_CACHE_JSON.stat().st_size / 1024, 1) if PDF_TEXT_CACHE_JSON.exists() else 0,
         'server_mode': 'development' if (app.debug or settings.debug) else 'production',
@@ -2052,9 +2091,26 @@ def login_required(func):
 
 
 def trigger_client_refresh() -> None:
-    """Signal all connected browsers to refresh via Server Sent Events."""
+    """Signal all connected browsers to refresh via polling state and SSE."""
 
+    with refresh_lock:
+        refresh_state['version'] = int(refresh_state.get('version') or 0) + 1
+        refresh_state['updated_at'] = _utc_timestamp()
     refresh_event.set()
+
+
+def current_refresh_state() -> Dict[str, Any]:
+    settings = Settings()
+    mode = settings.refresh_mode if settings.refresh_mode in {'polling', 'sse'} else 'polling'
+    with refresh_lock:
+        version = int(refresh_state.get('version') or 0)
+        updated_at = str(refresh_state.get('updated_at') or '')
+    return {
+        'version': version,
+        'updated_at': updated_at,
+        'mode': mode,
+        'poll_interval_ms': max(10, settings.refresh_poll_seconds) * 1000,
+    }
 
 
 def is_safe_local_path(path: Any) -> bool:
@@ -2340,6 +2396,11 @@ def logout():
     return redirect(url_for('home'))
 
 # ---------------------- SSE Refresh ---------------------- #
+
+@app.route('/refresh-state')
+def refresh_state_route():
+    return jsonify(current_refresh_state())
+
 
 @app.route('/stream')
 def stream():
